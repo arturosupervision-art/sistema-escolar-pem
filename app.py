@@ -116,7 +116,6 @@ def generar_link_whatsapp(telefono, nombre_alumno, tipo_evento, detalle):
     
     fecha_mx = obtener_fecha_hora_mexico().strftime('%d/%m/%Y %H:%M')
     
-    # Texto con diseño Ejecutivo y Elegante
     texto = (
         f"🎓 *PREPARATORIA ESTADO DE MÉXICO*\n"
         f"_Subdirección Académica_\n\n"
@@ -128,12 +127,10 @@ def generar_link_whatsapp(telefono, nombre_alumno, tipo_evento, detalle):
         f"ℹ️ _Para cualquier duda o aclaración, favor de acudir a las instalaciones de la institución._"
     )
     
-    # Codificación limpia sin corrupción de caracteres
     texto_enc = urllib.parse.quote(texto)
     return f"https://api.whatsapp.com/send?phone={tel_limpio}&text={texto_enc}"
 
 def renderizar_lista_enlaces_whatsapp(lista_links):
-    """Muestra tarjetas con el botón nativo de Streamlit para evitar conflictos de codificación"""
     if not lista_links:
         return
     st.markdown("---")
@@ -527,7 +524,7 @@ def generar_excel_muestra():
     return out.getvalue()
 
 def generar_excel_muestra_rep_academicos():
-    df = pd.DataFrame({"matricula": ["2026001"], "semestre": [3], "fecha": [obtener_fecha_hora_mexico().strftime("%Y-%m-%d")], "motivo": ["I Inasistencia"]})
+    df = pd.DataFrame({"matricula": ["2026001"], "semestre": [3], "materia": ["MATEMATICAS III"], "fecha": [obtener_fecha_hora_mexico().strftime("%Y-%m-%d")], "motivo": ["I Inasistencia"]})
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
     return out.getvalue()
@@ -619,6 +616,7 @@ def modulo_carga_datos(key_prefix=""):
         
         with tab_ind:
             sem_rep = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def), key=f"{key_prefix}_sem_ac")
+            materia_rep = st.selectbox("Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
             motivo_ac_sel = st.selectbox("Motivo del Reporte Académico:", MOTIVOS_ACADEMICOS, key=f"{key_prefix}_mot_ac_sel")
             
             motivo_final = motivo_ac_sel
@@ -629,20 +627,21 @@ def modulo_carga_datos(key_prefix=""):
             
             if st.button("Registrar Reporte Académico", key=f"{key_prefix}_btn_ac"):
                 if motivo_final.strip():
+                    motivo_guardar = f"[{materia_rep}] {motivo_final.strip()}"
                     evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
                     conn = sqlite3.connect("sistema_escolar.db")
                     cursor = conn.cursor()
-                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_limpia, sem_rep, obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), motivo_final.strip(), evidencia_auto))
+                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_limpia, sem_rep, obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), motivo_guardar, evidencia_auto))
                     conn.commit()
                     conn.close()
                     
-                    enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Académico", f"Motivo: {motivo_final}")
+                    enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Académico", f"Motivo: {motivo_guardar}")
                     
                     st.success(f"✅ ¡Reporte guardado! Registrado con estampilla: {estampa_fecha_hora}")
                     
                     # Generar opción opcional de WhatsApp
-                    link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Académico", motivo_final)
-                    renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_final, "Link": link_wa}])
+                    link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Académico", motivo_guardar)
+                    renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_guardar, "Link": link_wa}])
 
         with tab_mas:
             st.markdown("#### 🚀 Carga Masiva de Reportes Académicos")
@@ -662,19 +661,22 @@ def modulo_carga_datos(key_prefix=""):
                     sem_item = int(f['semestre'])
                     fecha_item = str(f['fecha']).strip()
                     motivo_item = str(f['motivo']).strip()
+                    materia_item = str(f.get('materia', 'OTRA')).strip()
+                    motivo_guardar_mas = f"[{materia_item}] {motivo_item}"
+                    
                     evidencia_auto = f"Registro Carga Masiva [{estampa_fecha_hora}]"
 
-                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_item, sem_item, fecha_item, motivo_item, evidencia_auto))
+                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_item, sem_item, fecha_item, motivo_guardar_mas, evidencia_auto))
                     c_ok += 1
                     
                     cursor.execute("SELECT nombre, correo_tutor, whatsapp_tutor FROM alumnos WHERE matricula=?", (mat_item,))
                     al_data = cursor.fetchone()
                     if al_data:
                         nom_a, corr_t, wa_t = al_data
-                        ok_c, _ = enviar_notificacion_correo(corr_t, nom_a, mat_item, "Reporte Académico", f"Motivo: {motivo_item}")
+                        ok_c, _ = enviar_notificacion_correo(corr_t, nom_a, mat_item, "Reporte Académico", f"Motivo: {motivo_guardar_mas}")
                         if ok_c: c_correos += 1
-                        link = generar_link_whatsapp(wa_t, nom_a, "Reporte Académico", motivo_item)
-                        temp_links.append({"Matrícula": mat_item, "Alumno": nom_a, "Detalle": motivo_item, "Link": link})
+                        link = generar_link_whatsapp(wa_t, nom_a, "Reporte Académico", motivo_guardar_mas)
+                        temp_links.append({"Matrícula": mat_item, "Alumno": nom_a, "Detalle": motivo_guardar_mas, "Link": link})
                 
                 conn.commit()
                 conn.close()
