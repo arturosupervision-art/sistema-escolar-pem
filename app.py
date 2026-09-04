@@ -2,7 +2,6 @@ import os
 import base64
 import io
 import smtplib
-import sqlite3
 import urllib.parse
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -13,6 +12,7 @@ import extra_streamlit_components as stx
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+from sqlalchemy import text
 
 # Definir la ruta exacta de la imagen para Streamlit Cloud
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,12 +24,15 @@ LOGO_PATH = os.path.join(BASE_DIR, "logo 172.png")
 CORREO_EMISOR = "notificaciones@pem.edu.mx"
 PASSWORD_CORREO = "mqtxcnxwycqflxip"
 
+st.set_page_config(page_title="Sistema Control Escolar - Prep. Edo. de México", layout="wide")
+CREDITOS = "Sistema diseñado por: LEM Arturo Javier Diaz Salazar, Subdirector Académico de la Preparatoria Estado de México."
+
+# Inicializar conexión a Supabase
+conn = st.connection("supabase", type="sql")
+
 # Función helper para obtener siempre la hora exacta de CDMX / Edo. Méx.
 def obtener_fecha_hora_mexico():
     return datetime.now(ZoneInfo("America/Mexico_City"))
-
-st.set_page_config(page_title="Sistema Control Escolar - Prep. Edo. de México", layout="wide")
-CREDITOS = "Sistema diseñado por: LEM Arturo Javier Diaz Salazar, Subdirector Académico de la Preparatoria Estado de México."
 
 # ----------------- ADMINISTRADOR DE COOKIES -----------------
 def get_cookie_manager():
@@ -199,67 +202,61 @@ def enviar_notificacion_correo(correo_tutor, nombre_alumno, matricula, tipo_even
     except Exception as e:
         return False, str(e)
 
-# ----------------- BASE DE DATOS -----------------
+# ----------------- BASE DE DATOS SUPABASE -----------------
 def inicializar_bd():
-    conn = sqlite3.connect("sistema_escolar.db")
-    cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, contrasena TEXT, rol TEXT)")
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS alumnos (
-        matricula TEXT PRIMARY KEY, 
-        nombre TEXT, 
-        semestre INT, 
-        grupo TEXT,
-        correo_tutor TEXT,
-        whatsapp_tutor TEXT
-    )""")
+    with conn.session as session:
+        session.execute(text("CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, contrasena TEXT, rol TEXT)"))
+        
+        session.execute(text("""
+        CREATE TABLE IF NOT EXISTS alumnos (
+            matricula TEXT PRIMARY KEY, 
+            nombre TEXT, 
+            semestre INT, 
+            grupo TEXT,
+            correo_tutor TEXT,
+            whatsapp_tutor TEXT
+        )"""))
 
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS calificaciones (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        matricula TEXT, 
-        semestre INT, 
-        materia TEXT, 
-        parcial1 REAL, 
-        parcial2 REAL, 
-        final REAL
-    )""")
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS reportes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        matricula TEXT, 
-        semestre INT, 
-        fecha TEXT, 
-        motivo TEXT,
-        metodo_notificacion TEXT,
-        tipo_reporte TEXT DEFAULT 'Disciplinario'
-    )""")
+        session.execute(text("""
+        CREATE TABLE IF NOT EXISTS calificaciones (
+            id SERIAL PRIMARY KEY, 
+            matricula TEXT, 
+            semestre INT, 
+            materia TEXT, 
+            parcial1 REAL, 
+            parcial2 REAL, 
+            final REAL
+        )"""))
+        
+        session.execute(text("""
+        CREATE TABLE IF NOT EXISTS reportes (
+            id SERIAL PRIMARY KEY, 
+            matricula TEXT, 
+            semestre INT, 
+            fecha TEXT, 
+            motivo TEXT,
+            metodo_notificacion TEXT,
+            tipo_reporte TEXT DEFAULT 'Disciplinario'
+        )"""))
 
-    cursor.execute("CREATE TABLE IF NOT EXISTS ayuda (id INTEGER PRIMARY KEY AUTOINCREMENT, matricula TEXT, semestre INT, tipo_ayuda TEXT, observaciones TEXT)")
+        session.execute(text("CREATE TABLE IF NOT EXISTS ayuda (id SERIAL PRIMARY KEY, matricula TEXT, semestre INT, tipo_ayuda TEXT, observaciones TEXT)"))
+        session.commit()
     
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    if cursor.fetchone()[0] == 0:
-        cursor.executemany("INSERT INTO usuarios VALUES (?, ?, ?)", [
-            ("arturo.subdirector", "admin123", "Subdirector"),
-            ("coordinacion.prepa", "coord123", "Coordinación"),
-            ("2026001", "alumno123", "Alumno/Padre")
-        ])
-        cursor.execute("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, 'A', 'tutor.juan@gmail.com', '7221234567')")
-        cursor.execute("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, 'B', 'tutor.maria@gmail.com', '7229876543')")
-    conn.commit()
-    conn.close()
+    df_count = conn.query("SELECT COUNT(*) AS total FROM usuarios", ttl=0)
+    if df_count.iloc[0]['total'] == 0:
+        with conn.session as session:
+            session.execute(text("INSERT INTO usuarios VALUES ('arturo.subdirector', 'admin123', 'Subdirector') ON CONFLICT (usuario) DO NOTHING"))
+            session.execute(text("INSERT INTO usuarios VALUES ('coordinacion.prepa', 'coord123', 'Coordinación') ON CONFLICT (usuario) DO NOTHING"))
+            session.execute(text("INSERT INTO usuarios VALUES ('2026001', 'alumno123', 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, 'A', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, 'B', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
+            session.commit()
 
 inicializar_bd()
 
 def obtener_lista_alumnos():
-    conn = sqlite3.connect("sistema_escolar.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT matricula, nombre, semestre, grupo, correo_tutor, whatsapp_tutor FROM alumnos")
-    lista = cursor.fetchall()
-    conn.close()
-    return lista
+    df = conn.query("SELECT matricula, nombre, semestre, grupo, correo_tutor, whatsapp_tutor FROM alumnos ORDER BY nombre", ttl=0)
+    return df.values.tolist()
 
 # ----------------- AUTENTICACIÓN PERSISTENTE VÍA COOKIES -----------------
 if "autenticado" not in st.session_state:
@@ -292,13 +289,9 @@ if not st.session_state.autenticado:
         usuario = st.text_input("Usuario")
         contrasena = st.text_input("Contraseña", type="password")
         if st.form_submit_button("Ingresar al Sistema"):
-            conn = sqlite3.connect("sistema_escolar.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT rol FROM usuarios WHERE usuario=? AND contrasena=?", (usuario, contrasena))
-            res = cursor.fetchone()
-            conn.close()
-            if res:
-                rol_db = res[0]
+            res = conn.query("SELECT rol FROM usuarios WHERE usuario = :u AND contrasena = :p", params={"u": usuario, "p": contrasena}, ttl=0)
+            if not res.empty:
+                rol_db = res.iloc[0]['rol']
                 st.session_state.autenticado = True
                 st.session_state.rol = rol_db
                 st.session_state.usuario = usuario
@@ -331,30 +324,27 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
     st.rerun()
 
 def calcular_reglas_boleta(p1, p2, ef_guardado):
-    p1_v = p1 if p1 is not None else 0.0
-    p2_v = p2 if p2 is not None else 0.0
+    p1_v = float(p1) if p1 is not None and pd.notnull(p1) else 0.0
+    p2_v = float(p2) if p2 is not None and pd.notnull(p2) else 0.0
     prom_parcial = (p1_v + p2_v) / 2
     
     if prom_parcial >= 8.0:
         ex_final_str = "N/A"
         prom_ordinario = prom_parcial
     elif 6.0 <= prom_parcial <= 7.9:
-        ef_v = ef_guardado if ef_guardado is not None else 0.0
+        ef_v = float(ef_guardado) if ef_guardado is not None and pd.notnull(ef_guardado) else 0.0
         ex_final_str = f"{ef_v:.1f}"
         prom_ordinario = (prom_parcial + ef_v) / 2 if ef_v > 0.0 else prom_parcial
     else:
         ex_final_str = "SD"
-        ef_v = ef_guardado if ef_guardado is not None else 0.0
+        ef_v = float(ef_guardado) if ef_guardado is not None and pd.notnull(ef_guardado) else 0.0
         prom_ordinario = (prom_parcial + ef_v) / 2 if ef_v > 0.0 else prom_parcial
         
     return prom_parcial, ex_final_str, prom_ordinario
 
 def mostrar_boleta(matricula, nombre, grupo, semestre_selec):
-    conn = sqlite3.connect("sistema_escolar.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT materia, parcial1, parcial2, final FROM calificaciones WHERE matricula=? AND semestre=?", (matricula, semestre_selec))
-    materias = cursor.fetchall()
-    conn.close()
+    res = conn.query("SELECT materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m AND semestre = :s", params={"m": matricula, "s": semestre_selec}, ttl=0)
+    materias = res.values.tolist()
     
     if materias:
         datos_lista_pantalla, pdf_rows, suma_ordinarios = [], "", 0.0
@@ -362,8 +352,8 @@ def mostrar_boleta(matricula, nombre, grupo, semestre_selec):
             nom_mat, p1, p2, ef = m
             prom_p, ef_str, prom_o = calcular_reglas_boleta(p1, p2, ef)
             suma_ordinarios += prom_o
-            p1_f = f"{p1:.1f}" if p1 is not None else "0.0"
-            p2_f = f"{p2:.1f}" if p2 is not None else "0.0"
+            p1_f = f"{float(p1):.1f}" if p1 is not None and pd.notnull(p1) else "0.0"
+            p2_f = f"{float(p2):.1f}" if p2 is not None and pd.notnull(p2) else "0.0"
             
             datos_lista_pantalla.append({
                 "Asignatura": nom_mat, "1º Parcial": p1_f, "2º Parcial": p2_f,
@@ -450,12 +440,10 @@ def mostrar_boleta(matricula, nombre, grupo, semestre_selec):
         st.warning("No se encontraron calificaciones registradas para este semestre.")
 
 def mostrar_expediente_completo(matricula):
-    conn = sqlite3.connect("sistema_escolar.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM alumnos WHERE matricula=?", (matricula,))
-    alumno = cursor.fetchall()
+    df_al = conn.query("SELECT * FROM alumnos WHERE matricula = :m", params={"m": matricula}, ttl=0)
     
-    if alumno:
+    if not df_al.empty:
+        alumno = df_al.values.tolist()
         al_mat, al_nom, al_sem, al_gpo = alumno[0][0], alumno[0][1], alumno[0][2], alumno[0][3]
         al_correo = alumno[0][4] if len(alumno[0]) > 4 else "Sin correo"
         al_wa = alumno[0][5] if len(alumno[0]) > 5 else "Sin número"
@@ -468,12 +456,9 @@ def mostrar_expediente_completo(matricula):
         </div>
         """, unsafe_allow_html=True)
         
-        cursor.execute("SELECT semestre, materia, parcial1, parcial2, final FROM calificaciones WHERE matricula=?", (al_mat,))
-        calif = cursor.fetchall()
-        cursor.execute("SELECT semestre, fecha, motivo, metodo_notificacion, tipo_reporte FROM reportes WHERE matricula=?", (al_mat,))
-        reps = cursor.fetchall()
-        cursor.execute("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula=?", (al_mat,))
-        ayudas = cursor.fetchall()
+        calif = conn.query("SELECT semestre, materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
+        reps = conn.query("SELECT semestre, fecha, motivo, metodo_notificacion, tipo_reporte FROM reportes WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
+        ayudas = conn.query("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
         
         st.markdown("### 📚 Trayectoria de Historial Desglosado")
         semestres_disponibles = sorted(list(set([c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem])))
@@ -487,7 +472,9 @@ def mostrar_expediente_completo(matricula):
                     if c_sem:
                         for c in c_sem:
                             _, ef_str, prom_o = calcular_reglas_boleta(c[2], c[3], c[4])
-                            st.info(f"**{c[1]}**\n1P: {c[2] or 0.0} | 2P: {c[3] or 0.0}\nFinal: {ef_str} | Ord: {prom_o:.1f}")
+                            p1_val = c[2] if c[2] is not None else 0.0
+                            p2_val = c[3] if c[3] is not None else 0.0
+                            st.info(f"**{c[1]}**\n1P: {p1_val} | 2P: {p2_val}\nFinal: {ef_str} | Ord: {prom_o:.1f}")
                     else: 
                         st.caption("*Sin asignaturas*")
                         
@@ -510,11 +497,9 @@ def mostrar_expediente_completo(matricula):
                             st.warning(f"🌟 {a[1]}\n{a[2]}")
                     else: 
                         st.caption("*Sin requerimientos*")
-        conn.close()
         return al_mat, al_nom, al_sem, al_gpo, al_correo, al_wa
     else:
         st.error("No se encontró ningún alumno.")
-        conn.close()
         return None
 
 # GENERADORES EXCEL
@@ -534,7 +519,6 @@ def generar_excel_muestra_rep_academicos():
 def modulo_carga_datos(key_prefix=""):
     opciones_captura = ["Nuevo Reporte Académico", "Nuevo Reporte Disciplinario", "Nueva Calificación", "Cargar Ayuda Académica"]
     
-    # Solo el subdirector puede registrar alumnos nuevos
     if st.session_state.rol == "Subdirector":
         opciones_captura.append("Registrar Nuevo Alumno")
         
@@ -562,18 +546,15 @@ def modulo_carga_datos(key_prefix=""):
             
             if st.form_submit_button("Dar de Alta Alumno"):
                 if mat.strip() and nombre_al.strip():
-                    conn = sqlite3.connect("sistema_escolar.db")
-                    cursor = conn.cursor()
                     try:
-                        cursor.execute("INSERT INTO alumnos VALUES (?, ?, ?, ?, ?, ?)", (mat.strip(), nombre_al.strip(), sem, grupo_al.strip().upper(), correo_t.strip(), wa_t.strip()))
-                        cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, 'Alumno/Padre')", (mat.strip(), mat.strip()))
-                        conn.commit()
+                        with conn.session as session:
+                            session.execute(text("INSERT INTO alumnos VALUES (:mat, :nom, :sem, :gpo, :corr, :wa) ON CONFLICT (matricula) DO UPDATE SET nombre=:nom, semestre=:sem, grupo=:gpo, correo_tutor=:corr, whatsapp_tutor=:wa"), {"mat": mat.strip(), "nom": nombre_al.strip(), "sem": sem, "gpo": grupo_al.strip().upper(), "corr": correo_t.strip(), "wa": wa_t.strip()})
+                            session.execute(text("INSERT INTO usuarios VALUES (:usr, :pass, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"usr": mat.strip(), "pass": mat.strip()})
+                            session.commit()
                         st.success(f"¡Alumno {nombre_al} registrado con éxito!")
                         st.rerun()
                     except Exception as e: 
                         st.error(f"Error: {e}")
-                    finally: 
-                        conn.close()
 
         st.write("---")
         st.markdown("### 📊 Carga Masiva desde Excel")
@@ -581,21 +562,19 @@ def modulo_carga_datos(key_prefix=""):
         archivo = st.file_uploader("Sube Excel de Alumnos:", type=["xlsx"], key=f"{key_prefix}_up_al")
         if archivo and st.button("🚀 Procesar e Importar Alumnos", key=f"{key_prefix}_btn_proc_al"):
             df = pd.read_excel(archivo)
-            conn = sqlite3.connect("sistema_escolar.db")
-            cursor = conn.cursor()
             ex, err = 0, 0
-            for _, f in df.iterrows():
-                try:
-                    mat_item = str(f['matricula']).strip()
-                    wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
-                    ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
-                    cursor.execute("INSERT INTO alumnos VALUES (?, ?, ?, ?, ?, ?)", (mat_item, str(f['nombre']).strip(), int(f['semestre']), str(f['grupo']).strip().upper(), ct, wa))
-                    cursor.execute("INSERT OR REPLACE INTO usuarios VALUES (?, ?, 'Alumno/Padre')", (mat_item, mat_item))
-                    ex += 1
-                except: 
-                    err += 1
-            conn.commit()
-            conn.close()
+            with conn.session as session:
+                for _, f in df.iterrows():
+                    try:
+                        mat_item = str(f['matricula']).strip()
+                        wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
+                        ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
+                        session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": int(f['semestre']), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
+                        session.execute(text("INSERT INTO usuarios VALUES (:m, :m, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"m": mat_item})
+                        ex += 1
+                    except: 
+                        err += 1
+                session.commit()
             st.success(f"Éxito: {ex} añadidos, {err} omitidos.")
             st.rerun()
         return
@@ -613,10 +592,9 @@ def modulo_carga_datos(key_prefix=""):
     datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
     nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
 
-    # ESTAMPILLA UNIFICADA DE FECHA Y HORA (HORARIO LOCAL MÉXICO)
     estampa_fecha_hora = obtener_fecha_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 1. REPORTE ACADÉMICO (INDIVIDUAL Y MASIVO CON WHATSAPP OPTATIVO)
+    # 1. REPORTE ACADÉMICO
     if opcion == "Nuevo Reporte Académico":
         st.markdown("### 📋 Registro de Reporte Académico")
         tab_ind, tab_mas = st.tabs(["✍️ Captura Individual", "📊 Carga Masiva (Excel / CSV)"])
@@ -636,17 +614,13 @@ def modulo_carga_datos(key_prefix=""):
                 if motivo_final.strip():
                     motivo_guardar = f"[{materia_rep}] {motivo_final.strip()}"
                     evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
-                    conn = sqlite3.connect("sistema_escolar.db")
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_limpia, sem_rep, obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), motivo_guardar, evidencia_auto))
-                    conn.commit()
-                    conn.close()
+                    with conn.session as session:
+                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), {"m": mat_limpia, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": motivo_guardar, "ev": evidencia_auto})
+                        session.commit()
                     
                     enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Académico", f"Motivo: {motivo_guardar}")
-                    
                     st.success(f"✅ ¡Reporte guardado! Registrado con estampilla: {estampa_fecha_hora}")
                     
-                    # Generar opción opcional de WhatsApp
                     link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Académico", motivo_guardar)
                     renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_guardar, "Link": link_wa}])
 
@@ -657,36 +631,31 @@ def modulo_carga_datos(key_prefix=""):
             
             if file_ac and st.button("🚀 Procesar Carga Masiva", key=f"{key_prefix}_btn_proc_mas"):
                 df_rep = pd.read_csv(file_ac) if file_ac.name.endswith(".csv") else pd.read_excel(file_ac)
-                conn = sqlite3.connect("sistema_escolar.db")
-                cursor = conn.cursor()
-                
                 c_ok, c_correos = 0, 0
                 temp_links = []
                 
-                for _, f in df_rep.iterrows():
-                    mat_item = str(f['matricula']).strip()
-                    sem_item = int(f['semestre'])
-                    fecha_item = str(f['fecha']).strip()
-                    motivo_item = str(f['motivo']).strip()
-                    materia_item = str(f.get('materia', 'OTRA')).strip()
-                    motivo_guardar_mas = f"[{materia_item}] {motivo_item}"
-                    
-                    evidencia_auto = f"Registro Carga Masiva [{estampa_fecha_hora}]"
+                with conn.session as session:
+                    for _, f in df_rep.iterrows():
+                        mat_item = str(f['matricula']).strip()
+                        sem_item = int(f['semestre'])
+                        fecha_item = str(f['fecha']).strip()
+                        motivo_item = str(f['motivo']).strip()
+                        materia_item = str(f.get('materia', 'OTRA')).strip()
+                        motivo_guardar_mas = f"[{materia_item}] {motivo_item}"
+                        evidencia_auto = f"Registro Carga Masiva [{estampa_fecha_hora}]"
 
-                    cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Académico')", (mat_item, sem_item, fecha_item, motivo_guardar_mas, evidencia_auto))
-                    c_ok += 1
-                    
-                    cursor.execute("SELECT nombre, correo_tutor, whatsapp_tutor FROM alumnos WHERE matricula=?", (mat_item,))
-                    al_data = cursor.fetchone()
-                    if al_data:
-                        nom_a, corr_t, wa_t = al_data
-                        ok_c, _ = enviar_notificacion_correo(corr_t, nom_a, mat_item, "Reporte Académico", f"Motivo: {motivo_guardar_mas}")
-                        if ok_c: c_correos += 1
-                        link = generar_link_whatsapp(wa_t, nom_a, "Reporte Académico", motivo_guardar_mas)
-                        temp_links.append({"Matrícula": mat_item, "Alumno": nom_a, "Detalle": motivo_guardar_mas, "Link": link})
+                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), {"m": mat_item, "s": sem_item, "f": fecha_item, "mot": motivo_guardar_mas, "ev": evidencia_auto})
+                        c_ok += 1
+                        
+                        al_df = conn.query("SELECT nombre, correo_tutor, whatsapp_tutor FROM alumnos WHERE matricula = :m", params={"m": mat_item}, ttl=0)
+                        if not al_df.empty:
+                            nom_a, corr_t, wa_t = al_df.iloc[0]['nombre'], al_df.iloc[0]['correo_tutor'], al_df.iloc[0]['whatsapp_tutor']
+                            ok_c, _ = enviar_notificacion_correo(corr_t, nom_a, mat_item, "Reporte Académico", f"Motivo: {motivo_guardar_mas}")
+                            if ok_c: c_correos += 1
+                            link = generar_link_whatsapp(wa_t, nom_a, "Reporte Académico", motivo_guardar_mas)
+                            temp_links.append({"Matrícula": mat_item, "Alumno": nom_a, "Detalle": motivo_guardar_mas, "Link": link})
+                    session.commit()
                 
-                conn.commit()
-                conn.close()
                 st.session_state.links_masivos_wa = temp_links
                 st.success(f"🎉 ¡Proceso masivo completado!\n- 📋 {c_ok} Reportes e evidencias registrados automáticamente.\n- 📧 {c_correos} Correos enviados.")
 
@@ -706,16 +675,13 @@ def modulo_carga_datos(key_prefix=""):
         if st.button("Registrar Reporte Disciplinario"):
             if motivo_disc.strip():
                 evidencia_auto = f"{metodo_notif} [{estampa_fecha_hora}]"
-                conn = sqlite3.connect("sistema_escolar.db")
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Disciplinario')", (mat_limpia, sem_rep, fecha_rep, motivo_disc.strip(), evidencia_auto))
-                conn.commit()
-                conn.close()
+                with conn.session as session:
+                    session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario')"), {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto})
+                    session.commit()
                 
                 enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Disciplinario", f"Detalle: {motivo_disc}")
                 st.success(f"✅ ¡Reporte Disciplinario guardado! Evidencia registrada: {evidencia_auto}")
                 
-                # Opción opcional de WhatsApp para el usuario
                 link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Disciplinario", motivo_disc)
                 renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_disc, "Link": link_wa}])
 
@@ -728,25 +694,23 @@ def modulo_carga_datos(key_prefix=""):
         calif_nota = st.number_input("Nota", min_value=0.0, max_value=10.0, step=0.1)
         
         if st.button("Guardar Calificación"):
-            conn = sqlite3.connect("sistema_escolar.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM calificaciones WHERE matricula=? AND semestre=? AND materia=?", (mat_limpia, sem_calif, materia_selec))
-            existe = cursor.fetchone()
+            res_ex = conn.query("SELECT id FROM calificaciones WHERE matricula = :m AND semestre = :s AND materia = :mat", params={"m": mat_limpia, "s": sem_calif, "mat": materia_selec}, ttl=0)
             col = "parcial1" if tipo_parcial == "Examen 1º Parcial" else "parcial2" if tipo_parcial == "Examen 2º Parcial" else "final"
-            
-            if existe: cursor.execute(f"UPDATE calificaciones SET {col}=? WHERE id=?", (calif_nota, existe[0]))
-            else: cursor.execute(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (?, ?, ?, ?)", (mat_limpia, sem_calif, materia_selec, calif_nota))
-            
             evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
-            cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Aviso Calificación')", (mat_limpia, sem_calif, obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), f"{materia_selec} ({tipo_parcial}): {calif_nota}", evidencia_auto))
             
-            conn.commit()
-            conn.close()
+            with conn.session as session:
+                if not res_ex.empty:
+                    c_id = int(res_ex.iloc[0]['id'])
+                    session.execute(text(f"UPDATE calificaciones SET {col} = :nota WHERE id = :id"), {"nota": calif_nota, "id": c_id})
+                else:
+                    session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": sem_calif, "mat": materia_selec, "nota": calif_nota})
+                
+                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación')"), {"m": mat_limpia, "s": sem_calif, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto})
+                session.commit()
             
             enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Calificación", f"Materia: {materia_selec}<br>Nota: {calif_nota}")
             st.success(f"✅ ¡Calificación guardada y certificada en la bitácora ({estampa_fecha_hora})!")
             
-            # Opción opcional de WhatsApp
             detalle_cal = f"{materia_selec} ({tipo_parcial}): {calif_nota}"
             link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Aviso de Calificación", detalle_cal)
             renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": detalle_cal, "Link": link_wa}])
@@ -759,18 +723,14 @@ def modulo_carga_datos(key_prefix=""):
         obs_a = st.text_area("Observaciones")
         
         if st.button("Guardar Ayuda y Certificar"):
-            conn = sqlite3.connect("sistema_escolar.db")
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO ayuda VALUES (NULL, ?, ?, ?, ?)", (mat_limpia, sem_a, tipo_a, obs_a))
-            
             evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
-            cursor.execute("INSERT INTO reportes VALUES (NULL, ?, ?, ?, ?, ?, 'Apoyo/Tutoría')", (mat_limpia, sem_a, obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), f"{tipo_a}: {obs_a}", evidencia_auto))
+            with conn.session as session:
+                session.execute(text("INSERT INTO ayuda (matricula, semestre, tipo_ayuda, observaciones) VALUES (:m, :s, :t, :o)"), {"m": mat_limpia, "s": sem_a, "t": tipo_a, "o": obs_a})
+                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Apoyo/Tutoría')"), {"m": mat_limpia, "s": sem_a, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto})
+                session.commit()
             
-            conn.commit()
-            conn.close()
             st.success(f"✅ ¡Apoyo registrado y certificado automáticamente ({estampa_fecha_hora})!")
             
-            # Opción opcional de WhatsApp
             detalle_ayuda = f"{tipo_a}: {obs_a}"
             link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Apoyo/Tutoría", detalle_ayuda)
             renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": detalle_ayuda, "Link": link_wa}])
@@ -787,24 +747,22 @@ def modulo_tutorias():
 
     fecha_str = fecha_sel.strftime("%Y-%m-%d")
     
-    conn = sqlite3.connect("sistema_escolar.db")
     query = """
     SELECT r.id, r.fecha, a.matricula, a.nombre, a.semestre, a.grupo, r.tipo_reporte, r.motivo, r.metodo_notificacion, a.whatsapp_tutor 
     FROM reportes r 
     JOIN alumnos a ON r.matricula = a.matricula 
-    WHERE r.fecha = ?
+    WHERE r.fecha = :f
     """
-    params = [fecha_str]
+    params = {"f": fecha_str}
     
     if sem_sel != "Todos":
-        query += " AND a.semestre = ?"
-        params.append(sem_sel)
+        query += " AND a.semestre = :sem"
+        params["sem"] = sem_sel
     if gpo_sel.strip():
-        query += " AND UPPER(a.grupo) = ?"
-        params.append(gpo_sel.strip().upper())
+        query += " AND UPPER(a.grupo) = :gpo"
+        params["gpo"] = gpo_sel.strip().upper()
 
-    df_tutoria = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+    df_tutoria = conn.query(query, params=params, ttl=0)
 
     st.subheader(f"📊 Registros del Día: {fecha_sel.strftime('%d/%m/%Y')}")
     
@@ -840,25 +798,20 @@ def modulo_gestion_usuarios():
             
             if st.form_submit_button("Crear Usuario", type="primary"):
                 if nuevo_usr.strip() and nuevo_pass.strip():
-                    conn = sqlite3.connect("sistema_escolar.db")
-                    cursor = conn.cursor()
                     try:
-                        cursor.execute("INSERT INTO usuarios VALUES (?, ?, ?)", (nuevo_usr.strip(), nuevo_pass.strip(), nuevo_rol))
-                        conn.commit()
+                        with conn.session as session:
+                            session.execute(text("INSERT INTO usuarios VALUES (:u, :p, :r) ON CONFLICT (usuario) DO NOTHING"), {"u": nuevo_usr.strip(), "p": nuevo_pass.strip(), "r": nuevo_rol})
+                            session.commit()
                         st.success(f"¡Usuario **{nuevo_usr}** creado correctamente con el rol **{nuevo_rol}**!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al crear usuario (quizá ya existe): {e}")
-                    finally:
-                        conn.close()
                 else:
                     st.warning("Completa todos los campos.")
 
     with col_u2:
         st.markdown("### 👥 Usuarios Registrados Actuales")
-        conn = sqlite3.connect("sistema_escolar.db")
-        df_usuarios = pd.read_sql_query("SELECT usuario AS 'Usuario', rol AS 'Rol' FROM usuarios", conn)
-        conn.close()
+        df_usuarios = conn.query('SELECT usuario AS "Usuario", rol AS "Rol" FROM usuarios', ttl=0)
         
         st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
         
@@ -869,11 +822,9 @@ def modulo_gestion_usuarios():
             if usr_eliminar == st.session_state.usuario:
                 st.error("No puedes eliminar tu propio usuario activo.")
             else:
-                conn = sqlite3.connect("sistema_escolar.db")
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM usuarios WHERE usuario=?", (usr_eliminar,))
-                conn.commit()
-                conn.close()
+                with conn.session as session:
+                    session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
+                    session.commit()
                 st.success(f"Usuario {usr_eliminar} eliminado.")
                 st.rerun()
 
@@ -917,11 +868,10 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                         nuevo_sem_m = st.number_input("Nuevo semestre:", min_value=1, max_value=6, value=1)
                         if st.button("Aplicar Semestre Masivo", type="primary"):
                             if alumnos_seleccionados:
-                                conn = sqlite3.connect("sistema_escolar.db")
-                                cursor = conn.cursor()
-                                cursor.executemany("UPDATE alumnos SET semestre=? WHERE matricula=?", [(nuevo_sem_m, mat) for mat in alumnos_seleccionados])
-                                conn.commit()
-                                conn.close()
+                                with conn.session as session:
+                                    for mat in alumnos_seleccionados:
+                                        session.execute(text("UPDATE alumnos SET semestre = :s WHERE matricula = :m"), {"s": nuevo_sem_m, "m": mat})
+                                    session.commit()
                                 st.success("¡Semestres actualizados correctamente!")
                                 st.rerun()
                                 
@@ -929,26 +879,24 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                         nuevo_gpo_m = st.text_input("Nuevo grupo:")
                         if st.button("Aplicar Grupo Masivo", type="primary"):
                             if alumnos_seleccionados and nuevo_gpo_m.strip():
-                                conn = sqlite3.connect("sistema_escolar.db")
-                                cursor = conn.cursor()
-                                cursor.executemany("UPDATE alumnos SET grupo=? WHERE matricula=?", [(nuevo_gpo_m.strip().upper(), mat) for mat in alumnos_seleccionados])
-                                conn.commit()
-                                conn.close()
+                                with conn.session as session:
+                                    for mat in alumnos_seleccionados:
+                                        session.execute(text("UPDATE alumnos SET grupo = :g WHERE matricula = :m"), {"g": nuevo_gpo_m.strip().upper(), "m": mat})
+                                    session.commit()
                                 st.success("¡Grupos actualizados correctamente!")
                                 st.rerun()
                                 
                     elif accion_masiva == "Eliminar Alumnos Seleccionados":
                         if st.button("🚨 ELIMINAR SELECCIONADOS", type="primary"):
                             if alumnos_seleccionados:
-                                conn = sqlite3.connect("sistema_escolar.db")
-                                cursor = conn.cursor()
-                                for mat in alumnos_seleccionados:
-                                    cursor.execute("DELETE FROM alumnos WHERE matricula=?", (mat,))
-                                    cursor.execute("DELETE FROM calificaciones WHERE matricula=?", (mat,))
-                                    cursor.execute("DELETE FROM reportes WHERE matricula=?", (mat,))
-                                    cursor.execute("DELETE FROM ayuda WHERE matricula=?", (mat,))
-                                conn.commit()
-                                conn.close()
+                                with conn.session as session:
+                                    for mat in alumnos_seleccionados:
+                                        session.execute(text("DELETE FROM alumnos WHERE matricula = :m"), {"m": mat})
+                                        session.execute(text("DELETE FROM calificaciones WHERE matricula = :m"), {"m": mat})
+                                        session.execute(text("DELETE FROM reportes WHERE matricula = :m"), {"m": mat})
+                                        session.execute(text("DELETE FROM ayuda WHERE matricula = :m"), {"m": mat})
+                                        session.execute(text("DELETE FROM usuarios WHERE usuario = :m"), {"m": mat})
+                                    session.commit()
                                 st.success("Alumnos eliminados exitosamente.")
                                 st.rerun()
                                 
@@ -971,14 +919,12 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     wa_new = st.text_input("Modificar WhatsApp Tutor:", value=datos_act[5] or "")
                     
                     if st.button("💾 Guardar Cambios Individuales", type="primary"):
-                        conn = sqlite3.connect("sistema_escolar.db")
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "UPDATE alumnos SET nombre=?, semestre=?, grupo=?, correo_tutor=?, whatsapp_tutor=? WHERE matricula=?", 
-                            (nom_new.strip(), sem_new, gpo_new.strip().upper(), correo_new.strip(), wa_new.strip(), mat_mod)
-                        )
-                        conn.commit()
-                        conn.close()
+                        with conn.session as session:
+                            session.execute(
+                                text("UPDATE alumnos SET nombre = :n, semestre = :s, grupo = :g, correo_tutor = :c, whatsapp_tutor = :w WHERE matricula = :m"), 
+                                {"n": nom_new.strip(), "s": sem_new, "g": gpo_new.strip().upper(), "c": correo_new.strip(), "w": wa_new.strip(), "m": mat_mod}
+                            )
+                            session.commit()
                         st.success(f"¡Datos de {nom_new} modificados con éxito!")
                         st.rerun()
                         
@@ -987,14 +933,13 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     mat_del = st.selectbox("Selecciona matrícula a borrar:", df_admin["Matrícula"].tolist(), key="sel_del_ind")
                     
                     if st.button("❌ Confirmar Eliminación Individual"):
-                        conn = sqlite3.connect("sistema_escolar.db")
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM alumnos WHERE matricula=?", (mat_del,))
-                        cursor.execute("DELETE FROM calificaciones WHERE matricula=?", (mat_del,))
-                        cursor.execute("DELETE FROM reportes WHERE matricula=?", (mat_del,))
-                        cursor.execute("DELETE FROM ayuda WHERE matricula=?", (mat_del,))
-                        conn.commit()
-                        conn.close()
+                        with conn.session as session:
+                            session.execute(text("DELETE FROM alumnos WHERE matricula = :m"), {"m": mat_del})
+                            session.execute(text("DELETE FROM calificaciones WHERE matricula = :m"), {"m": mat_del})
+                            session.execute(text("DELETE FROM reportes WHERE matricula = :m"), {"m": mat_del})
+                            session.execute(text("DELETE FROM ayuda WHERE matricula = :m"), {"m": mat_del})
+                            session.execute(text("DELETE FROM usuarios WHERE usuario = :m"), {"m": mat_del})
+                            session.commit()
                         st.success("Alumno y registros asociados eliminados correctamente.")
                         st.rerun()
             else: 
