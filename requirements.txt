@@ -1,12 +1,6 @@
 streamlit
 pandas
-openpyxl
-extra-streamlit-components
-SQLAlchemy==2.0.25
-psycopg2-binary==2.9.9
-streamlit
-pandas
-extra-streamlit-components
 sqlalchemy
 psycopg2-binary
 openpyxl
+extra-streamlit-components
