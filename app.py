@@ -1,10 +1,9 @@
 import os
 import base64
 import io
-import re
 import smtplib
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -34,6 +33,12 @@ conn = st.connection("supabase", type="sql")
 # Función helper para obtener siempre la hora exacta de CDMX / Edo. Méx.
 def obtener_fecha_hora_mexico():
     return datetime.now(ZoneInfo("America/Mexico_City"))
+
+def obtener_siguiente_dia_habil(fecha_actual):
+    dia = fecha_actual + timedelta(days=1)
+    while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
+        dia += timedelta(days=1)
+    return dia
 
 # ----------------- ADMINISTRADOR DE COOKIES -----------------
 def get_cookie_manager():
@@ -534,6 +539,8 @@ def modulo_carga_datos(key_prefix=""):
         st.warning("⚠️ Primero debes dar de alta al menos a un alumno.")
         return
 
+    estampa_fecha_hora = obtener_fecha_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+
     # REGISTRAR NUEVO ALUMNO
     if opcion == "Registrar Nuevo Alumno":
         st.markdown("### 👤 Registro Individual de Alumno")
@@ -580,54 +587,83 @@ def modulo_carga_datos(key_prefix=""):
             st.rerun()
         return
 
-    # CAMPOS GENERALES DE SELECCIÓN DE ALUMNO
-    filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
-    alumnos_filtrados = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
-    if not alumnos_filtrados:
-        st.error("Ningún alumno coincide.")
-        return
-
-    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados]
-    alumno_selec = st.selectbox("Selecciona al Alumno:", opciones_alumnos, key=f"{key_prefix}_al_sel_gen")
-    mat_limpia = alumno_selec.split(" - ")[0]
-    datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
-    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
-
-    estampa_fecha_hora = obtener_fecha_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 1. REPORTE ACADÉMICO
+    # 1. REPORTE ACADÉMICO MULTIPLE POR MATERIA
     if opcion == "Nuevo Reporte Académico":
-        st.markdown("### 📋 Registro de Reporte Académico")
-        tab_ind, tab_mas = st.tabs(["✍️ Captura Individual", "📊 Carga Masiva (Excel / CSV)"])
+        tab_ind, tab_mas = st.tabs(["✍️ Captura por Lote / Materia", "📊 Carga Masiva (Excel / CSV)"])
         
         with tab_ind:
-            sem_rep = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def), key=f"{key_prefix}_sem_ac")
-            materia_rep = st.selectbox("Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
-            motivo_ac_sel = st.selectbox("Motivo del Reporte Académico:", MOTIVOS_ACADEMICOS, key=f"{key_prefix}_mot_ac_sel")
+            st.markdown("### 📋 Registro de Reporte Académico Dinámico")
             
-            motivo_final = motivo_ac_sel
-            if motivo_ac_sel == "Otro motivo (especificar)":
-                motivo_final = st.text_input("Especificar motivo:", key=f"{key_prefix}_mot_ac_esp")
-
-            st.info(f"📧 **Correo Tutor:** {correo_tutor or 'Sin correo'} | 📱 **WhatsApp Tutor:** {wa_tutor or 'Sin teléfono'}")
+            # Filtro por Grupo
+            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3]])))
+            gpo_sel = st.selectbox("1. Selecciona Grupo a reportar:", grupos_disp, key=f"{key_prefix}_gpo_ac")
+            alumnos_gpo = [a for a in alumnos_disponibles if a[3] == gpo_sel]
             
-            if st.button("Registrar Reporte Académico", key=f"{key_prefix}_btn_ac"):
-                if motivo_final.strip():
-                    motivo_guardar = f"[{materia_rep}] {motivo_final.strip()}"
-                    evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
+            sem_rep = st.number_input("2. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
+            materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
+            
+            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_gpo]
+            alumnos_sel_str = st.multiselect("4. Busca y selecciona a los alumnos reportados:", opciones_alumnos, key=f"{key_prefix}_al_sel_mul")
+            
+            if alumnos_sel_str:
+                st.write("---")
+                st.markdown("#### 🎯 Asignar Motivos y Observaciones por Alumno")
+                datos_lote = {}
+                
+                for al_str in alumnos_sel_str:
+                    mat_a = al_str.split(" - ")[0]
+                    nom_a = al_str.split(" - ")[1]
+                    
+                    st.markdown(f"**👤 {nom_a} ({mat_a})**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        motivo_sel = st.selectbox("Motivo:", MOTIVOS_ACADEMICOS, key=f"mot_{mat_a}")
+                        if motivo_sel == "Otro motivo (especificar)":
+                            motivo_sel = st.text_input("Especificar motivo:", key=f"esp_{mat_a}")
+                    with col2:
+                        obs_texto = st.text_input("Actividad u observaciones (opcional):", key=f"obs_{mat_a}")
+                        
+                    datos_lote[mat_a] = {"nombre": nom_a, "motivo": motivo_sel, "obs": obs_texto}
+                    
+                if st.button("🚀 Guardar y Notificar Lote Completo", type="primary", key=f"{key_prefix}_btn_ac_mul"):
+                    temp_links = []
+                    c_ok, c_correos = 0, 0
+                    
                     with conn.session as session:
-                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), {"m": mat_limpia, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": motivo_guardar, "ev": evidencia_auto})
+                        for mat_a, val in datos_lote.items():
+                            mot_final = val['motivo'].strip()
+                            obs_final = val['obs'].strip()
+                            texto_guardar = f"[{materia_rep}] {mot_final}"
+                            if obs_final:
+                                texto_guardar += f" | Obs: {obs_final}"
+                                
+                            evidencia_auto = f"Registro Lote [{estampa_fecha_hora}]"
+                            
+                            session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), 
+                                            {"m": mat_a, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": texto_guardar, "ev": evidencia_auto})
+                            c_ok += 1
+                            
+                            datos_al = [a for a in alumnos_gpo if a[0] == mat_a][0]
+                            correo_t = datos_al[4]
+                            wa_t = datos_al[5]
+                            
+                            ok_c, _ = enviar_notificacion_correo(correo_t, val['nombre'], mat_a, "Reporte Académico", f"Materia: {materia_rep}<br>Detalle: {texto_guardar}")
+                            if ok_c: c_correos += 1
+                            
+                            link = generar_link_whatsapp(wa_t, val['nombre'], "Reporte Académico", texto_guardar)
+                            temp_links.append({"Matrícula": mat_a, "Alumno": val['nombre'], "Detalle": texto_guardar, "Link": link})
+                        
                         session.commit()
-                    
-                    enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Académico", f"Motivo: {motivo_guardar}")
-                    st.success(f"✅ ¡Reporte guardado! Registrado con estampilla: {estampa_fecha_hora}")
-                    
-                    link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Académico", motivo_guardar)
-                    renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_guardar, "Link": link_wa}])
+                        
+                    st.session_state.links_masivos_wa = temp_links
+                    st.success(f"🎉 ¡Lote procesado! {c_ok} reportes guardados y {c_correos} correos automáticos enviados.")
+
+            if st.session_state.links_masivos_wa:
+                renderizar_lista_enlaces_whatsapp(st.session_state.links_masivos_wa)
 
         with tab_mas:
-            st.markdown("#### 🚀 Carga Masiva de Reportes Académicos")
-            st.download_button("📥 Descargar Plantilla Excel Reportes Académicos", data=generar_excel_muestra_rep_academicos(), file_name="plantilla_reportes_academicos.xlsx")
+            st.markdown("#### 🚀 Carga Masiva de Reportes Académicos desde Archivo")
+            st.download_button("📥 Descargar Plantilla", data=generar_excel_muestra_rep_academicos(), file_name="plantilla_reportes_academicos.xlsx")
             file_ac = st.file_uploader("Sube archivo Excel/CSV para Reportes Académicos:", type=["xlsx", "csv"], key=f"{key_prefix}_file_ac_mas")
             
             if file_ac and st.button("🚀 Procesar Carga Masiva", key=f"{key_prefix}_btn_proc_mas"):
@@ -658,14 +694,34 @@ def modulo_carga_datos(key_prefix=""):
                     session.commit()
                 
                 st.session_state.links_masivos_wa = temp_links
-                st.success(f"🎉 ¡Proceso masivo completado!\n- 📋 {c_ok} Reportes e evidencias registrados automáticamente.\n- 📧 {c_correos} Correos enviados.")
+                st.success(f"🎉 ¡Proceso masivo completado!\n- 📋 {c_ok} Reportes registrados automáticamente.\n- 📧 {c_correos} Correos enviados.")
 
             if st.session_state.links_masivos_wa:
                 renderizar_lista_enlaces_whatsapp(st.session_state.links_masivos_wa)
+        return
 
-    # 2. REPORTE DISCIPLINARIO
-    elif opcion == "Nuevo Reporte Disciplinario":
+    # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL (Para Disciplinarios, Calificación, Ayuda)
+    filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
+    alumnos_filtrados = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
+    if not alumnos_filtrados:
+        st.error("Ningún alumno coincide.")
+        return
+
+    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados]
+    alumno_selec = st.selectbox("Selecciona al Alumno:", opciones_alumnos, key=f"{key_prefix}_al_sel_gen")
+    mat_limpia = alumno_selec.split(" - ")[0]
+    datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
+    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
+
+    # 2. REPORTE DISCIPLINARIO (AUTOMATIZACIÓN 3/3)
+    if opcion == "Nuevo Reporte Disciplinario":
+        res_disc = conn.query("SELECT COUNT(*) as c FROM reportes WHERE matricula = :m AND tipo_reporte = 'Disciplinario'", params={"m": mat_limpia}, ttl=0)
+        total_previo = int(res_disc.iloc[0]['c']) if not res_disc.empty else 0
+        acumulados_semestre = total_previo % 3
+        
         st.markdown("### 📋 Registro de Reporte Disciplinario")
+        st.warning(f"⚠️ **Reportes Disciplinarios Acumulados: {acumulados_semestre}/3**")
+        
         sem_rep = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def))
         motivo_disc = st.text_area("Descripción Detallada de la Falta Disciplinaria:")
         metodo_notif = st.selectbox("¿Medio por el que se le notificó al Padre de Familia / Tutor?", OPCIONES_NOTIFICACION_DISCIPLINARIO, index=0)
@@ -676,12 +732,24 @@ def modulo_carga_datos(key_prefix=""):
         if st.button("Registrar Reporte Disciplinario"):
             if motivo_disc.strip():
                 evidencia_auto = f"{metodo_notif} [{estampa_fecha_hora}]"
+                nuevo_total = total_previo + 1
+                
                 with conn.session as session:
                     session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario')"), {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto})
+                    
+                    if nuevo_total % 3 == 0:
+                        prox_habil = obtener_siguiente_dia_habil(obtener_fecha_hora_mexico())
+                        fecha_prox_str = prox_habil.strftime("%Y-%m-%d")
+                        motivo_suspension = f"Suspensión automática por acumulación de 3 reportes disciplinarios. Aplicable para el día hábil: {prox_habil.strftime('%d/%m/%Y')}."
+                        ev_susp = f"Sistema Automático 3/3 [{estampa_fecha_hora}]"
+                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Suspensión')"), {"m": mat_limpia, "s": sem_rep, "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp})
+                        st.error(f"🚨 **ALERTA A COORDINACIÓN:** El alumno ha juntado 3 reportes disciplinarios. Se registró una **Suspensión** automática programada para el {prox_habil.strftime('%d/%m/%Y')}.")
+                        enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Notificación de Suspensión (3er Reporte)", motivo_suspension)
+                    
                     session.commit()
                 
                 enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Disciplinario", f"Detalle: {motivo_disc}")
-                st.success(f"✅ ¡Reporte Disciplinario guardado! Evidencia registrada: {evidencia_auto}")
+                st.success(f"✅ ¡Reporte Disciplinario guardado! (Conteo actualizado).")
                 
                 link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Disciplinario", motivo_disc)
                 renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_disc, "Link": link_wa}])
@@ -706,7 +774,7 @@ def modulo_carga_datos(key_prefix=""):
                 else:
                     session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": sem_calif, "mat": materia_selec, "nota": calif_nota})
                 
-                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación')"), {"m": mat_limpia, "s": sem_calif, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto})
+                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación')"), {"m": mat_limpia, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto})
                 session.commit()
             
             enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Calificación", f"Materia: {materia_selec}<br>Nota: {calif_nota}")
@@ -846,6 +914,7 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     m_b = al_sel.split(" - ")[0]
                     d_al = mostrar_expediente_completo(m_b)
                     if d_al:
+                        import re
                         sem_str = re.sub(r'\D', '', str(d_al[2]))
                         sem_val = int(sem_str) if sem_str else 1
                         sem_val = max(1, min(6, sem_val))
