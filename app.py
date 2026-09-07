@@ -1,4 +1,5 @@
 import os
+import time
 import base64
 import io
 import smtplib
@@ -246,6 +247,13 @@ def inicializar_bd():
         )"""))
 
         session.execute(text("CREATE TABLE IF NOT EXISTS ayuda (id SERIAL PRIMARY KEY, matricula TEXT, semestre INT, tipo_ayuda TEXT, observaciones TEXT)"))
+        
+        # AGREGAR COLUMNA DE AUDITORÍA (CAPTURISTA) SI NO EXISTE
+        try:
+            session.execute(text("ALTER TABLE reportes ADD COLUMN capturista TEXT DEFAULT 'Sistema'"))
+        except:
+            pass
+            
         session.commit()
     
     df_count = conn.query("SELECT COUNT(*) AS total FROM usuarios", ttl=0)
@@ -320,13 +328,18 @@ st.sidebar.write(f"**Usuario:** {st.session_state.usuario}")
 components.html(PWA_PUSH_SCRIPT, height=75)
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+    # 1. Limpiar las variables de estado locales
     st.session_state.autenticado = False
     st.session_state.rol = None
     st.session_state.usuario = None
     st.session_state.links_masivos_wa = []
     
-    cookie_manager.delete("pem_usuario", key="del_usr")
-    cookie_manager.delete("pem_rol", key="del_rol")
+    # 2. Sobrescribir las cookies con valores vacíos
+    cookie_manager.set("pem_usuario", "", key="del_usr")
+    cookie_manager.set("pem_rol", "", key="del_rol")
+    
+    # 3. Breve pausa para asegurar el borrado antes del reinicio
+    time.sleep(0.5)
     st.rerun()
 
 def calcular_reglas_boleta(p1, p2, ef_guardado):
@@ -463,7 +476,7 @@ def mostrar_expediente_completo(matricula):
         """, unsafe_allow_html=True)
         
         calif = conn.query("SELECT semestre, materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
-        reps = conn.query("SELECT semestre, fecha, motivo, metodo_notificacion, tipo_reporte FROM reportes WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
+        reps = conn.query("SELECT semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista FROM reportes WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
         ayudas = conn.query("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
         
         st.markdown("### 📚 Trayectoria de Historial Desglosado")
@@ -491,7 +504,8 @@ def mostrar_expediente_completo(matricula):
                         for r in r_sem:
                             tipo_tit = r[4] or "Disciplinario"
                             notif_info = f"\n📜 *Evidencia:* {r[3]}" if len(r) > 3 and r[3] else ""
-                            st.error(f"📌 **{tipo_tit}** ({r[1]})\n{r[2]}{notif_info}")
+                            cap_info = f"\n👤 *Capturista:* {r[5]}" if len(r) > 5 and r[5] else ""
+                            st.error(f"📌 **{tipo_tit}** ({r[1]})\n{r[2]}{notif_info}{cap_info}")
                     else: 
                         st.success("✓ Conducta / Expediente Limpio")
                         
@@ -540,6 +554,7 @@ def modulo_carga_datos(key_prefix=""):
         return
 
     estampa_fecha_hora = obtener_fecha_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
+    usr_actual = st.session_state.usuario
 
     # REGISTRAR NUEVO ALUMNO
     if opcion == "Registrar Nuevo Alumno":
@@ -594,7 +609,6 @@ def modulo_carga_datos(key_prefix=""):
         with tab_ind:
             st.markdown("### 📋 Registro de Reporte Académico Dinámico")
             
-            # Filtro por Grupo
             grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3]])))
             gpo_sel = st.selectbox("1. Selecciona Grupo a reportar:", grupos_disp, key=f"{key_prefix}_gpo_ac")
             alumnos_gpo = [a for a in alumnos_disponibles if a[3] == gpo_sel]
@@ -639,8 +653,10 @@ def modulo_carga_datos(key_prefix=""):
                                 
                             evidencia_auto = f"Registro Lote [{estampa_fecha_hora}]"
                             
-                            session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), 
-                                            {"m": mat_a, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": texto_guardar, "ev": evidencia_auto})
+                            session.execute(
+                                text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
+                                {"m": mat_a, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
+                            )
                             c_ok += 1
                             
                             datos_al = [a for a in alumnos_gpo if a[0] == mat_a][0]
@@ -681,7 +697,10 @@ def modulo_carga_datos(key_prefix=""):
                         motivo_guardar_mas = f"[{materia_item}] {motivo_item}"
                         evidencia_auto = f"Registro Carga Masiva [{estampa_fecha_hora}]"
 
-                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Académico')"), {"m": mat_item, "s": sem_item, "f": fecha_item, "mot": motivo_guardar_mas, "ev": evidencia_auto})
+                        session.execute(
+                            text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
+                            {"m": mat_item, "s": sem_item, "f": fecha_item, "mot": motivo_guardar_mas, "ev": evidencia_auto, "cap": usr_actual}
+                        )
                         c_ok += 1
                         
                         al_df = conn.query("SELECT nombre, correo_tutor, whatsapp_tutor FROM alumnos WHERE matricula = :m", params={"m": mat_item}, ttl=0)
@@ -700,7 +719,7 @@ def modulo_carga_datos(key_prefix=""):
                 renderizar_lista_enlaces_whatsapp(st.session_state.links_masivos_wa)
         return
 
-    # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL (Para Disciplinarios, Calificación, Ayuda)
+    # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL
     filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
     alumnos_filtrados = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
     if not alumnos_filtrados:
@@ -735,14 +754,21 @@ def modulo_carga_datos(key_prefix=""):
                 nuevo_total = total_previo + 1
                 
                 with conn.session as session:
-                    session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario')"), {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto})
+                    session.execute(
+                        text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario', :cap)"), 
+                        {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto, "cap": usr_actual}
+                    )
                     
                     if nuevo_total % 3 == 0:
                         prox_habil = obtener_siguiente_dia_habil(obtener_fecha_hora_mexico())
                         fecha_prox_str = prox_habil.strftime("%Y-%m-%d")
                         motivo_suspension = f"Suspensión automática por acumulación de 3 reportes disciplinarios. Aplicable para el día hábil: {prox_habil.strftime('%d/%m/%Y')}."
                         ev_susp = f"Sistema Automático 3/3 [{estampa_fecha_hora}]"
-                        session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Suspensión')"), {"m": mat_limpia, "s": sem_rep, "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp})
+                        
+                        session.execute(
+                            text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Suspensión', :cap)"), 
+                            {"m": mat_limpia, "s": sem_rep, "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp, "cap": 'Sistema Bot'}
+                        )
                         st.error(f"🚨 **ALERTA A COORDINACIÓN:** El alumno ha juntado 3 reportes disciplinarios. Se registró una **Suspensión** automática programada para el {prox_habil.strftime('%d/%m/%Y')}.")
                         enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Notificación de Suspensión (3er Reporte)", motivo_suspension)
                     
@@ -774,7 +800,10 @@ def modulo_carga_datos(key_prefix=""):
                 else:
                     session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": sem_calif, "mat": materia_selec, "nota": calif_nota})
                 
-                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación')"), {"m": mat_limpia, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto})
+                session.execute(
+                    text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación', :cap)"), 
+                    {"m": mat_limpia, "s": sem_calif, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto, "cap": usr_actual}
+                )
                 session.commit()
             
             enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Calificación", f"Materia: {materia_selec}<br>Nota: {calif_nota}")
@@ -795,7 +824,10 @@ def modulo_carga_datos(key_prefix=""):
             evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
             with conn.session as session:
                 session.execute(text("INSERT INTO ayuda (matricula, semestre, tipo_ayuda, observaciones) VALUES (:m, :s, :t, :o)"), {"m": mat_limpia, "s": sem_a, "t": tipo_a, "o": obs_a})
-                session.execute(text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte) VALUES (:m, :s, :f, :mot, :ev, 'Apoyo/Tutoría')"), {"m": mat_limpia, "s": sem_a, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto})
+                session.execute(
+                    text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Apoyo/Tutoría', :cap)"), 
+                    {"m": mat_limpia, "s": sem_a, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto, "cap": usr_actual}
+                )
                 session.commit()
             
             st.success(f"✅ ¡Apoyo registrado y certificado automáticamente ({estampa_fecha_hora})!")
@@ -817,7 +849,7 @@ def modulo_tutorias():
     fecha_str = fecha_sel.strftime("%Y-%m-%d")
     
     query = """
-    SELECT r.id, r.fecha, a.matricula, a.nombre, a.semestre, a.grupo, r.tipo_reporte, r.motivo, r.metodo_notificacion, a.whatsapp_tutor 
+    SELECT r.id, r.fecha, r.capturista, a.matricula, a.nombre, a.semestre, a.grupo, r.tipo_reporte, r.motivo, r.metodo_notificacion, a.whatsapp_tutor 
     FROM reportes r 
     JOIN alumnos a ON r.matricula = a.matricula 
     WHERE r.fecha = :f
@@ -836,7 +868,7 @@ def modulo_tutorias():
     st.subheader(f"📊 Registros del Día: {fecha_sel.strftime('%d/%m/%Y')}")
     
     if not df_tutoria.empty:
-        df_tutoria.columns = ["ID", "Fecha Captura", "Matrícula", "Nombre Alumno", "Semestre", "Grupo", "Tipo Evento", "Motivo / Detalle", "Evidencia (Fecha y Hora de Registro/Envío)", "WhatsApp Tutor"]
+        df_tutoria.columns = ["ID", "Fecha Captura", "Usuario Capturista", "Matrícula", "Nombre Alumno", "Semestre", "Grupo", "Tipo Evento", "Motivo / Detalle", "Evidencia", "WhatsApp Tutor"]
         st.dataframe(df_tutoria, use_container_width=True, hide_index=True)
         
         out_tut = io.BytesIO()
