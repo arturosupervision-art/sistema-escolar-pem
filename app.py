@@ -328,19 +328,18 @@ st.sidebar.write(f"**Usuario:** {st.session_state.usuario}")
 components.html(PWA_PUSH_SCRIPT, height=75)
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
-    # 1. Limpiar las variables de estado locales
-    st.session_state.autenticado = False
-    st.session_state.rol = None
-    st.session_state.usuario = None
-    st.session_state.links_masivos_wa = []
+    # 1. Limpiar toda la memoria de la sesión actual
+    st.session_state.clear()
     
-    # 2. Sobrescribir las cookies con valores vacíos
-    cookie_manager.set("pem_usuario", "", key="del_usr")
-    cookie_manager.set("pem_rol", "", key="del_rol")
-    
-    # 3. Breve pausa para asegurar el borrado antes del reinicio
-    time.sleep(0.5)
-    st.rerun()
+    # 2. Forzar el borrado de cookies y recargar la página directamente desde el navegador
+    js_cerrar_sesion = """
+    <script>
+        document.cookie = "pem_usuario=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        document.cookie = "pem_rol=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        window.parent.location.reload();
+    </script>
+    """
+    components.html(js_cerrar_sesion, height=0)
 
 def calcular_reglas_boleta(p1, p2, ef_guardado):
     p1_v = float(p1) if p1 is not None and pd.notnull(p1) else 0.0
