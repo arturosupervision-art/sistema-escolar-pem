@@ -1,6 +1,7 @@
 import os
 import base64
 import io
+import re
 import smtplib
 import urllib.parse
 from datetime import datetime
@@ -845,11 +846,10 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     m_b = al_sel.split(" - ")[0]
                     d_al = mostrar_expediente_completo(m_b)
                     if d_al:
-                      import re
-sem_str = re.sub(r'\D', '', str(d_al[2]))
-sem_val = int(sem_str) if sem_str else 1
-sem_val = max(1, min(6, sem_val))
-sem_b = st.number_input("Semestre Boleta:", min_value=1, max_value=6, value=sem_val)
+                        sem_str = re.sub(r'\D', '', str(d_al[2]))
+                        sem_val = int(sem_str) if sem_str else 1
+                        sem_val = max(1, min(6, sem_val))
+                        sem_b = st.number_input("Semestre Boleta:", min_value=1, max_value=6, value=sem_val)
                         mostrar_boleta(d_al[0], d_al[1], d_al[3], sem_b)
 
         # 2. ADMINISTRACIÓN GLOBAL DE ALUMNOS
