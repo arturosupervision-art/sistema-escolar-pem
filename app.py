@@ -31,6 +31,9 @@ CREDITOS = "Sistema diseñado por: LEM Arturo Javier Diaz Salazar, Subdirector A
 # Inicializar conexión a Supabase
 conn = st.connection("supabase", type="sql")
 
+# Lista predefinida de grupos/turnos oficiales
+LISTA_GRUPOS = ["1", "1V", "2", "3", "4", "5", "SEP"]
+
 # Función helper para obtener siempre la hora exacta de CDMX / Edo. Méx.
 def obtener_fecha_hora_mexico():
     return datetime.now(ZoneInfo("America/Mexico_City"))
@@ -248,7 +251,6 @@ def inicializar_bd():
 
         session.execute(text("CREATE TABLE IF NOT EXISTS ayuda (id SERIAL PRIMARY KEY, matricula TEXT, semestre INT, tipo_ayuda TEXT, observaciones TEXT)"))
         
-        # AGREGAR COLUMNA DE AUDITORÍA (CAPTURISTA) SI NO EXISTE
         try:
             session.execute(text("ALTER TABLE reportes ADD COLUMN capturista TEXT DEFAULT 'Sistema'"))
         except:
@@ -262,8 +264,8 @@ def inicializar_bd():
             session.execute(text("INSERT INTO usuarios VALUES ('arturo.subdirector', 'admin123', 'Subdirector') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('coordinacion.prepa', 'coord123', 'Coordinación') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('2026001', 'alumno123', 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, 'A', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, 'B', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, '1', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, '1V', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
             session.commit()
 
 inicializar_bd()
@@ -328,10 +330,8 @@ st.sidebar.write(f"**Usuario:** {st.session_state.usuario}")
 components.html(PWA_PUSH_SCRIPT, height=75)
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
-    # 1. Limpiar toda la memoria de la sesión actual
     st.session_state.clear()
     
-    # 2. Forzar el borrado de cookies y recargar la página directamente desde el navegador
     js_cerrar_sesion = """
     <script>
         document.cookie = "pem_usuario=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -523,7 +523,7 @@ def mostrar_expediente_completo(matricula):
 
 # GENERADORES EXCEL
 def generar_excel_muestra():
-    df = pd.DataFrame({"matricula": ["2026003"], "nombre": ["Pedro Lopez"], "semestre": [1], "grupo": ["A"], "correo_tutor": ["padre@gmail.com"], "whatsapp_tutor": ["7221112233"]})
+    df = pd.DataFrame({"matricula": ["2026003"], "nombre": ["Pedro Lopez"], "semestre": [1], "grupo": ["1V"], "correo_tutor": ["padre@gmail.com"], "whatsapp_tutor": ["7221112233"]})
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
     return out.getvalue()
@@ -562,7 +562,7 @@ def modulo_carga_datos(key_prefix=""):
             mat = st.text_input("Matrícula del Alumno")
             nombre_al = st.text_input("Nombre completo")
             sem = st.number_input("Semestre Inicial", min_value=1, max_value=6, value=1)
-            grupo_al = st.text_input("Grupo (Ej. A)")
+            grupo_al = st.selectbox("Grupo / Turno", LISTA_GRUPOS)
             correo_t = st.text_input("Correo del Tutor/Padre de Familia")
             wa_t = st.text_input("Número de WhatsApp del Tutor (10 dígitos)")
             
@@ -731,7 +731,7 @@ def modulo_carga_datos(key_prefix=""):
     datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
     nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
 
-    # 2. REPORTE DISCIPLINARIO (AUTOMATIZACIÓN 3/3)
+    # 2. REPORTE DISCIPLINARIO
     if opcion == "Nuevo Reporte Disciplinario":
         res_disc = conn.query("SELECT COUNT(*) as c FROM reportes WHERE matricula = :m AND tipo_reporte = 'Disciplinario'", params={"m": mat_limpia}, ttl=0)
         total_previo = int(res_disc.iloc[0]['c']) if not res_disc.empty else 0
@@ -843,7 +843,7 @@ def modulo_tutorias():
     col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1: fecha_sel = st.date_input("Filtrar por Fecha/Día:", obtener_fecha_hora_mexico())
     with col_f2: sem_sel = st.selectbox("Filtrar por Semestre:", ["Todos", 1, 2, 3, 4, 5, 6])
-    with col_f3: gpo_sel = st.text_input("Filtrar por Grupo (Dejar vacío para todos):")
+    with col_f3: gpo_sel = st.selectbox("Filtrar por Grupo (o Todos):", ["Todos"] + LISTA_GRUPOS)
 
     fecha_str = fecha_sel.strftime("%Y-%m-%d")
     
@@ -858,7 +858,7 @@ def modulo_tutorias():
     if sem_sel != "Todos":
         query += " AND a.semestre = :sem"
         params["sem"] = sem_sel
-    if gpo_sel.strip():
+    if gpo_sel != "Todos":
         query += " AND UPPER(a.grupo) = :gpo"
         params["gpo"] = gpo_sel.strip().upper()
 
@@ -980,9 +980,9 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                                 st.rerun()
                                 
                     elif accion_masiva == "Cambiar de Grupo Masivo":
-                        nuevo_gpo_m = st.text_input("Nuevo grupo:")
+                        nuevo_gpo_m = st.selectbox("Nuevo grupo:", LISTA_GRUPOS)
                         if st.button("Aplicar Grupo Masivo", type="primary"):
-                            if alumnos_seleccionados and nuevo_gpo_m.strip():
+                            if alumnos_seleccionados:
                                 with conn.session as session:
                                     for mat in alumnos_seleccionados:
                                         session.execute(text("UPDATE alumnos SET grupo = :g WHERE matricula = :m"), {"g": nuevo_gpo_m.strip().upper(), "m": mat})
@@ -1018,7 +1018,8 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     
                     nom_new = st.text_input("Modificar Nombre:", value=datos_act[1])
                     sem_new = st.number_input("Modificar Semestre:", min_value=1, max_value=6, value=int(datos_act[2]))
-                    gpo_new = st.text_input("Modificar Grupo:", value=datos_act[3])
+                    idx_gpo = LISTA_GRUPOS.index(datos_act[3]) if datos_act[3] in LISTA_GRUPOS else 0
+                    gpo_new = st.selectbox("Modificar Grupo:", LISTA_GRUPOS, index=idx_gpo)
                     correo_new = st.text_input("Modificar Correo Tutor:", value=datos_act[4] or "")
                     wa_new = st.text_input("Modificar WhatsApp Tutor:", value=datos_act[5] or "")
                     
