@@ -161,7 +161,7 @@ def enviar_notificacion_correo(correo_tutor, nombre_alumno, matricula, tipo_even
         return False, "Sin correo registrado para el tutor."
         
     try:
-        msg = MIMEMultipart()El código completo de tu archivo **app (6)_3.py** implementa de forma íntegra el Sistema de Control Escolar para la Preparatoria Estado de México, integrando Streamlit, bases de datos en Supabase y el sistema de notificaciones[cite: 1]. 
+        msg = MIMEMultipart() 
 
 ```python
 import os
