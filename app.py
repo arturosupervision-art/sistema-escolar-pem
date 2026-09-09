@@ -41,6 +41,12 @@ def obtener_siguiente_dia_habil(fecha_actual):
         dia += timedelta(days=1)
     return dia
 
+def obtener_dia_habil_anterior(fecha_actual):
+    dia = fecha_actual - timedelta(days=1)
+    while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
+        dia -= timedelta(days=1)
+    return dia
+
 # ----------------- ADMINISTRADOR DE COOKIES -----------------
 def get_cookie_manager():
     return stx.CookieManager(key="cookie_manager_pem")
@@ -479,7 +485,8 @@ def mostrar_expediente_completo(matricula):
         ayudas = conn.query("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
         
         st.markdown("### 📚 Trayectoria de Historial Desglosado")
-        semestres_disponibles = sorted(list(set([c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem])))
+        semestres_brutos = [c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem]
+        semestres_disponibles = sorted(list(set([int(s) for s in semestres_brutos if pd.notnull(s) and str(s).strip().isdigit()])))
         
         for sem in semestres_disponibles:
             with st.expander(f"➔ Ver Historial Completo del {sem}° Semestre", expanded=True):
@@ -608,16 +615,13 @@ def modulo_carga_datos(key_prefix=""):
         with tab_ind:
             st.markdown("### 📋 Registro de Reporte Académico Dinámico")
             
-            # 1. Primero seleccionamos el semestre
             sem_rep = st.number_input("1. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
             
-            # 2. Filtramos los grupos que existen ÚNICAMENTE en el semestre seleccionado
             grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and a[2] == sem_rep])))
             gpo_sel = st.selectbox("2. Selecciona Grupo a reportar:", grupos_disp if grupos_disp else ["SIN GRUPOS"], key=f"{key_prefix}_gpo_ac")
             
             materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
             
-            # 3. Filtramos a los alumnos ESTRICTAMENTE por el semestre y grupo seleccionados
             alumnos_filtrados = [a for a in alumnos_disponibles if a[2] == sem_rep and a[3] == gpo_sel]
             opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_filtrados]
             
@@ -651,15 +655,22 @@ def modulo_carga_datos(key_prefix=""):
                         for mat_a, val in datos_lote.items():
                             mot_final = val['motivo'].strip()
                             obs_final = val['obs'].strip()
+                            
+                            fecha_incidencia_obj = obtener_dia_habil_anterior(obtener_fecha_hora_mexico())
+                            fecha_incidencia_db = fecha_incidencia_obj.strftime("%Y-%m-%d")
+                            fecha_incidencia_msg = fecha_incidencia_obj.strftime("%d/%m/%Y")
+
                             texto_guardar = f"[{materia_rep}] {mot_final}"
                             if obs_final:
                                 texto_guardar += f" | Obs: {obs_final}"
+                            
+                            texto_guardar += f" (Corresponde al: {fecha_incidencia_msg})"
                                 
                             evidencia_auto = f"Registro Lote [{estampa_fecha_hora}]"
                             
                             session.execute(
                                 text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
-                                {"m": mat_a, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
+                                {"m": mat_a, "s": sem_rep, "f": fecha_incidencia_db, "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
                             )
                             c_ok += 1
                             
