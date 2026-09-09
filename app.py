@@ -608,14 +608,19 @@ def modulo_carga_datos(key_prefix=""):
         with tab_ind:
             st.markdown("### 📋 Registro de Reporte Académico Dinámico")
             
-            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3]])))
-            gpo_sel = st.selectbox("1. Selecciona Grupo a reportar:", grupos_disp, key=f"{key_prefix}_gpo_ac")
-            alumnos_gpo = [a for a in alumnos_disponibles if a[3] == gpo_sel]
+            # 1. Primero seleccionamos el semestre
+            sem_rep = st.number_input("1. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
             
-            sem_rep = st.number_input("2. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
+            # 2. Filtramos los grupos que existen ÚNICAMENTE en el semestre seleccionado
+            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and a[2] == sem_rep])))
+            gpo_sel = st.selectbox("2. Selecciona Grupo a reportar:", grupos_disp if grupos_disp else ["SIN GRUPOS"], key=f"{key_prefix}_gpo_ac")
+            
             materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
             
-            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_gpo]
+            # 3. Filtramos a los alumnos ESTRICTAMENTE por el semestre y grupo seleccionados
+            alumnos_filtrados = [a for a in alumnos_disponibles if a[2] == sem_rep and a[3] == gpo_sel]
+            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_filtrados]
+            
             alumnos_sel_str = st.multiselect("4. Busca y selecciona a los alumnos reportados:", opciones_alumnos, key=f"{key_prefix}_al_sel_mul")
             
             if alumnos_sel_str:
@@ -658,7 +663,7 @@ def modulo_carga_datos(key_prefix=""):
                             )
                             c_ok += 1
                             
-                            datos_al = [a for a in alumnos_gpo if a[0] == mat_a][0]
+                            datos_al = [a for a in alumnos_filtrados if a[0] == mat_a][0]
                             correo_t = datos_al[4]
                             wa_t = datos_al[5]
                             
@@ -720,16 +725,16 @@ def modulo_carga_datos(key_prefix=""):
 
     # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL
     filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
-    alumnos_filtrados = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
-    if not alumnos_filtrados:
+    alumnos_filtrados_ind = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
+    if not alumnos_filtrados_ind:
         st.error("Ningún alumno coincide.")
         return
 
-    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados]
+    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados_ind]
     alumno_selec = st.selectbox("Selecciona al Alumno:", opciones_alumnos, key=f"{key_prefix}_al_sel_gen")
     mat_limpia = alumno_selec.split(" - ")[0]
-    datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
-    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
+    datos_al_ind = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
+    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al_ind[1], datos_al_ind[2], datos_al_ind[4], datos_al_ind[5]
 
     # 2. REPORTE DISCIPLINARIO (AUTOMATIZACIÓN 3/3)
     if opcion == "Nuevo Reporte Disciplinario":
