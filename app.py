@@ -1070,4 +1070,3 @@ elif st.session_state.rol == "Alumno/Padre":
 
 st.markdown("---")
 st.caption(CREDITOS)
-```[cite: 5]
