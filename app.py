@@ -224,7 +224,7 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS alumnos (
             matricula TEXT PRIMARY KEY, 
             nombre TEXT, 
-            semestre INT, 
+            semestre TEXT, 
             grupo TEXT,
             correo_tutor TEXT,
             whatsapp_tutor TEXT
@@ -234,7 +234,7 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS calificaciones (
             id SERIAL PRIMARY KEY, 
             matricula TEXT, 
-            semestre INT, 
+            semestre TEXT, 
             materia TEXT, 
             parcial1 REAL, 
             parcial2 REAL, 
@@ -245,14 +245,14 @@ def inicializar_bd():
         CREATE TABLE IF NOT EXISTS reportes (
             id SERIAL PRIMARY KEY, 
             matricula TEXT, 
-            semestre INT, 
+            semestre TEXT, 
             fecha TEXT, 
             motivo TEXT,
             metodo_notificacion TEXT,
             tipo_reporte TEXT DEFAULT 'Disciplinario'
         )"""))
 
-        session.execute(text("CREATE TABLE IF NOT EXISTS ayuda (id SERIAL PRIMARY KEY, matricula TEXT, semestre INT, tipo_ayuda TEXT, observaciones TEXT)"))
+        session.execute(text("CREATE TABLE IF NOT EXISTS ayuda (id SERIAL PRIMARY KEY, matricula TEXT, semestre TEXT, tipo_ayuda TEXT, observaciones TEXT)"))
         
         # AGREGAR COLUMNA DE AUDITORÍA (CAPTURISTA) SI NO EXISTE
         try:
@@ -268,8 +268,8 @@ def inicializar_bd():
             session.execute(text("INSERT INTO usuarios VALUES ('arturo.subdirector', 'admin123', 'Subdirector') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('coordinacion.prepa', 'coord123', 'Coordinación') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('2026001', 'alumno123', 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, 'A', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, 'B', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', '3', 'A', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', '1', 'B', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
             session.commit()
 
 inicializar_bd()
@@ -367,7 +367,7 @@ def calcular_reglas_boleta(p1, p2, ef_guardado):
     return prom_parcial, ex_final_str, prom_ordinario
 
 def mostrar_boleta(matricula, nombre, grupo, semestre_selec):
-    res = conn.query("SELECT materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m AND semestre = :s", params={"m": matricula, "s": semestre_selec}, ttl=0)
+    res = conn.query("SELECT materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m AND semestre = :s", params={"m": matricula, "s": str(semestre_selec)}, ttl=0)
     materias = res.values.tolist()
     
     if materias:
@@ -493,7 +493,7 @@ def mostrar_expediente_completo(matricula):
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown("**📊 Calificaciones**")
-                    c_sem = [x for x in calif if x[0] == sem]
+                    c_sem = [x for x in calif if str(x[0]) == str(sem)]
                     if c_sem:
                         for c in c_sem:
                             _, ef_str, prom_o = calcular_reglas_boleta(c[2], c[3], c[4])
@@ -505,7 +505,7 @@ def mostrar_expediente_completo(matricula):
                         
                 with col2:
                     st.markdown("**⚠️ Reportes Escolares y Bitácora**")
-                    r_sem = [x for x in reps if x[0] == sem]
+                    r_sem = [x for x in reps if str(x[0]) == str(sem)]
                     if r_sem:
                         for r in r_sem:
                             tipo_tit = r[4] or "Disciplinario"
@@ -517,7 +517,7 @@ def mostrar_expediente_completo(matricula):
                         
                 with col3:
                     st.markdown("**📍 Apoyos y Tutorías**")
-                    a_sem = [x for x in ayudas if x[0] == sem]
+                    a_sem = [x for x in ayudas if str(x[0]) == str(sem)]
                     if a_sem:
                         for a in a_sem: 
                             st.warning(f"🌟 {a[1]}\n{a[2]}")
@@ -530,13 +530,13 @@ def mostrar_expediente_completo(matricula):
 
 # GENERADORES EXCEL
 def generar_excel_muestra():
-    df = pd.DataFrame({"matricula": ["2026003"], "nombre": ["Pedro Lopez"], "semestre": [1], "grupo": ["A"], "correo_tutor": ["padre@gmail.com"], "whatsapp_tutor": ["7221112233"]})
+    df = pd.DataFrame({"matricula": ["2026003"], "nombre": ["Pedro Lopez"], "semestre": ["1"], "grupo": ["A"], "correo_tutor": ["padre@gmail.com"], "whatsapp_tutor": ["7221112233"]})
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
     return out.getvalue()
 
 def generar_excel_muestra_rep_academicos():
-    df = pd.DataFrame({"matricula": ["2026001"], "semestre": [3], "materia": ["MATEMATICAS III"], "fecha": [obtener_fecha_hora_mexico().strftime("%Y-%m-%d")], "motivo": ["I Inasistencia"]})
+    df = pd.DataFrame({"matricula": ["2026001"], "semestre": ["3"], "materia": ["MATEMATICAS III"], "fecha": [obtener_fecha_hora_mexico().strftime("%Y-%m-%d")], "motivo": ["I Inasistencia"]})
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
     return out.getvalue()
@@ -577,7 +577,7 @@ def modulo_carga_datos(key_prefix=""):
                 if mat.strip() and nombre_al.strip():
                     try:
                         with conn.session as session:
-                            session.execute(text("INSERT INTO alumnos VALUES (:mat, :nom, :sem, :gpo, :corr, :wa) ON CONFLICT (matricula) DO UPDATE SET nombre=:nom, semestre=:sem, grupo=:gpo, correo_tutor=:corr, whatsapp_tutor=:wa"), {"mat": mat.strip(), "nom": nombre_al.strip(), "sem": sem, "gpo": grupo_al.strip().upper(), "corr": correo_t.strip(), "wa": wa_t.strip()})
+                            session.execute(text("INSERT INTO alumnos VALUES (:mat, :nom, :sem, :gpo, :corr, :wa) ON CONFLICT (matricula) DO UPDATE SET nombre=:nom, semestre=:sem, grupo=:gpo, correo_tutor=:corr, whatsapp_tutor=:wa"), {"mat": mat.strip(), "nom": nombre_al.strip(), "sem": str(sem), "gpo": grupo_al.strip().upper(), "corr": correo_t.strip(), "wa": wa_t.strip()})
                             session.execute(text("INSERT INTO usuarios VALUES (:usr, :pass, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"usr": mat.strip(), "pass": mat.strip()})
                             session.commit()
                         st.success(f"¡Alumno {nombre_al} registrado con éxito!")
@@ -598,7 +598,7 @@ def modulo_carga_datos(key_prefix=""):
                         mat_item = str(f['matricula']).strip()
                         wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
                         ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
-                        session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": int(f['semestre']), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
+                        session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": str(int(f['semestre'])), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
                         session.execute(text("INSERT INTO usuarios VALUES (:m, :m, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"m": mat_item})
                         ex += 1
                     except: 
@@ -617,12 +617,12 @@ def modulo_carga_datos(key_prefix=""):
             
             sem_rep = st.number_input("1. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
             
-            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and a[2] == sem_rep])))
+            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and str(a[2]) == str(sem_rep)])))
             gpo_sel = st.selectbox("2. Selecciona Grupo a reportar:", grupos_disp if grupos_disp else ["SIN GRUPOS"], key=f"{key_prefix}_gpo_ac")
             
             materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
             
-            alumnos_filtrados = [a for a in alumnos_disponibles if a[2] == sem_rep and a[3] == gpo_sel]
+            alumnos_filtrados = [a for a in alumnos_disponibles if str(a[2]) == str(sem_rep) and a[3] == gpo_sel]
             opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_filtrados]
             
             alumnos_sel_str = st.multiselect("4. Busca y selecciona a los alumnos reportados:", opciones_alumnos, key=f"{key_prefix}_al_sel_mul")
@@ -670,7 +670,7 @@ def modulo_carga_datos(key_prefix=""):
                             
                             session.execute(
                                 text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
-                                {"m": mat_a, "s": sem_rep, "f": fecha_incidencia_db, "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
+                                {"m": mat_a, "s": str(sem_rep), "f": fecha_incidencia_db, "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
                             )
                             c_ok += 1
                             
@@ -705,7 +705,7 @@ def modulo_carga_datos(key_prefix=""):
                 with conn.session as session:
                     for _, f in df_rep.iterrows():
                         mat_item = str(f['matricula']).strip()
-                        sem_item = int(f['semestre'])
+                        sem_item = str(int(f['semestre']))
                         fecha_item = str(f['fecha']).strip()
                         motivo_item = str(f['motivo']).strip()
                         materia_item = str(f.get('materia', 'OTRA')).strip()
@@ -771,7 +771,7 @@ def modulo_carga_datos(key_prefix=""):
                 with conn.session as session:
                     session.execute(
                         text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario', :cap)"), 
-                        {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto, "cap": usr_actual}
+                        {"m": mat_limpia, "s": str(sem_rep), "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto, "cap": usr_actual}
                     )
                     
                     if nuevo_total % 3 == 0:
@@ -782,7 +782,7 @@ def modulo_carga_datos(key_prefix=""):
                         
                         session.execute(
                             text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Suspensión', :cap)"), 
-                            {"m": mat_limpia, "s": sem_rep, "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp, "cap": 'Sistema Bot'}
+                            {"m": mat_limpia, "s": str(sem_rep), "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp, "cap": 'Sistema Bot'}
                         )
                         st.error(f"🚨 **ALERTA A COORDINACIÓN:** El alumno ha juntado 3 reportes disciplinarios. Se registró una **Suspensión** automática programada para el {prox_habil.strftime('%d/%m/%Y')}.")
                         enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Notificación de Suspensión (3er Reporte)", motivo_suspension)
@@ -804,7 +804,7 @@ def modulo_carga_datos(key_prefix=""):
         calif_nota = st.number_input("Nota", min_value=0.0, max_value=10.0, step=0.1)
         
         if st.button("Guardar Calificación"):
-            res_ex = conn.query("SELECT id FROM calificaciones WHERE matricula = :m AND semestre = :s AND materia = :mat", params={"m": mat_limpia, "s": sem_calif, "mat": materia_selec}, ttl=0)
+            res_ex = conn.query("SELECT id FROM calificaciones WHERE matricula = :m AND semestre = :s AND materia = :mat", params={"m": mat_limpia, "s": str(sem_calif), "mat": materia_selec}, ttl=0)
             col = "parcial1" if tipo_parcial == "Examen 1º Parcial" else "parcial2" if tipo_parcial == "Examen 2º Parcial" else "final"
             evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
             
@@ -813,11 +813,11 @@ def modulo_carga_datos(key_prefix=""):
                     c_id = int(res_ex.iloc[0]['id'])
                     session.execute(text(f"UPDATE calificaciones SET {col} = :nota WHERE id = :id"), {"nota": calif_nota, "id": c_id})
                 else:
-                    session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": sem_calif, "mat": materia_selec, "nota": calif_nota})
+                    session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": str(sem_calif), "mat": materia_selec, "nota": calif_nota})
                 
                 session.execute(
                     text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación', :cap)"), 
-                    {"m": mat_limpia, "s": sem_calif, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto, "cap": usr_actual}
+                    {"m": mat_limpia, "s": str(sem_calif), "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto, "cap": usr_actual}
                 )
                 session.commit()
             
@@ -838,10 +838,10 @@ def modulo_carga_datos(key_prefix=""):
         if st.button("Guardar Ayuda y Certificar"):
             evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
             with conn.session as session:
-                session.execute(text("INSERT INTO ayuda (matricula, semestre, tipo_ayuda, observaciones) VALUES (:m, :s, :t, :o)"), {"m": mat_limpia, "s": sem_a, "t": tipo_a, "o": obs_a})
+                session.execute(text("INSERT INTO ayuda (matricula, semestre, tipo_ayuda, observaciones) VALUES (:m, :s, :t, :o)"), {"m": mat_limpia, "s": str(sem_a), "t": tipo_a, "o": obs_a})
                 session.execute(
                     text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Apoyo/Tutoría', :cap)"), 
-                    {"m": mat_limpia, "s": sem_a, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto, "cap": usr_actual}
+                    {"m": mat_limpia, "s": str(sem_a), "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto, "cap": usr_actual}
                 )
                 session.commit()
             
@@ -873,7 +873,7 @@ def modulo_tutorias():
     
     if sem_sel != "Todos":
         query += " AND a.semestre = :sem"
-        params["sem"] = sem_sel
+        params["sem"] = str(sem_sel)
     if gpo_sel.strip():
         query += " AND UPPER(a.grupo) = :gpo"
         params["gpo"] = gpo_sel.strip().upper()
@@ -990,7 +990,7 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                             if alumnos_seleccionados:
                                 with conn.session as session:
                                     for mat in alumnos_seleccionados:
-                                        session.execute(text("UPDATE alumnos SET semestre = :s WHERE matricula = :m"), {"s": nuevo_sem_m, "m": mat})
+                                        session.execute(text("UPDATE alumnos SET semestre = :s WHERE matricula = :m"), {"s": str(nuevo_sem_m), "m": mat})
                                     session.commit()
                                 st.success("¡Semestres actualizados correctamente!")
                                 st.rerun()
@@ -1042,7 +1042,7 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                         with conn.session as session:
                             session.execute(
                                 text("UPDATE alumnos SET nombre = :n, semestre = :s, grupo = :g, correo_tutor = :c, whatsapp_tutor = :w WHERE matricula = :m"), 
-                                {"n": nom_new.strip(), "s": sem_new, "g": gpo_new.strip().upper(), "c": correo_new.strip(), "w": wa_new.strip(), "m": mat_mod}
+                                {"n": nom_new.strip(), "s": str(sem_new), "g": gpo_new.strip().upper(), "c": correo_new.strip(), "w": wa_new.strip(), "m": mat_mod}
                             )
                             session.commit()
                         st.success(f"¡Datos de {nom_new} modificados con éxito!")
