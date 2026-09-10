@@ -1,5 +1,4 @@
 import os
-import re
 import time
 import base64
 import io
@@ -40,12 +39,6 @@ def obtener_siguiente_dia_habil(fecha_actual):
     dia = fecha_actual + timedelta(days=1)
     while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
         dia += timedelta(days=1)
-    return dia
-
-def obtener_dia_habil_anterior(fecha_actual):
-    dia = fecha_actual - timedelta(days=1)
-    while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
-        dia -= timedelta(days=1)
     return dia
 
 # ----------------- ADMINISTRADOR DE COOKIES -----------------
@@ -486,8 +479,7 @@ def mostrar_expediente_completo(matricula):
         ayudas = conn.query("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
         
         st.markdown("### 📚 Trayectoria de Historial Desglosado")
-        semestres_brutos = [c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem]
-        semestres_disponibles = sorted(list(set([int(s) for s in semestres_brutos if pd.notnull(s) and str(s).strip().isdigit()])))
+        semestres_disponibles = sorted(list(set([c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem])))
         
         for sem in semestres_disponibles:
             with st.expander(f"➔ Ver Historial Completo del {sem}° Semestre", expanded=True):
@@ -596,8 +588,8 @@ def modulo_carga_datos(key_prefix=""):
             with conn.session as session:
                 for _, f in df.iterrows():
                     try:
-                        mat_item = str(f['matricula']).split('.')[0].strip()
-                        wa = str(f['whatsapp_tutor']).split('.')[0].strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
+                        mat_item = str(f['matricula']).strip()
+                        wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
                         ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
                         session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": int(f['semestre']), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
                         session.execute(text("INSERT INTO usuarios VALUES (:m, :m, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"m": mat_item})
@@ -616,16 +608,14 @@ def modulo_carga_datos(key_prefix=""):
         with tab_ind:
             st.markdown("### 📋 Registro de Reporte Académico Dinámico")
             
-            sem_rep = st.number_input("1. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
+            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3]])))
+            gpo_sel = st.selectbox("1. Selecciona Grupo a reportar:", grupos_disp, key=f"{key_prefix}_gpo_ac")
+            alumnos_gpo = [a for a in alumnos_disponibles if a[3] == gpo_sel]
             
-            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and a[2] == sem_rep])))
-            gpo_sel = st.selectbox("2. Selecciona Grupo a reportar:", grupos_disp if grupos_disp else ["SIN GRUPOS"], key=f"{key_prefix}_gpo_ac")
-            
+            sem_rep = st.number_input("2. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
             materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
             
-            alumnos_filtrados = [a for a in alumnos_disponibles if a[2] == sem_rep and a[3] == gpo_sel]
-            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_filtrados]
-            
+            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_gpo]
             alumnos_sel_str = st.multiselect("4. Busca y selecciona a los alumnos reportados:", opciones_alumnos, key=f"{key_prefix}_al_sel_mul")
             
             if alumnos_sel_str:
@@ -656,26 +646,19 @@ def modulo_carga_datos(key_prefix=""):
                         for mat_a, val in datos_lote.items():
                             mot_final = val['motivo'].strip()
                             obs_final = val['obs'].strip()
-                            
-                            fecha_incidencia_obj = obtener_dia_habil_anterior(obtener_fecha_hora_mexico())
-                            fecha_incidencia_db = fecha_incidencia_obj.strftime("%Y-%m-%d")
-                            fecha_incidencia_msg = fecha_incidencia_obj.strftime("%d/%m/%Y")
-
                             texto_guardar = f"[{materia_rep}] {mot_final}"
                             if obs_final:
                                 texto_guardar += f" | Obs: {obs_final}"
-                            
-                            texto_guardar += f" (Corresponde al: {fecha_incidencia_msg})"
                                 
                             evidencia_auto = f"Registro Lote [{estampa_fecha_hora}]"
                             
                             session.execute(
                                 text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
-                                {"m": mat_a, "s": sem_rep, "f": fecha_incidencia_db, "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
+                                {"m": mat_a, "s": sem_rep, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
                             )
                             c_ok += 1
                             
-                            datos_al = [a for a in alumnos_filtrados if a[0] == mat_a][0]
+                            datos_al = [a for a in alumnos_gpo if a[0] == mat_a][0]
                             correo_t = datos_al[4]
                             wa_t = datos_al[5]
                             
@@ -705,7 +688,7 @@ def modulo_carga_datos(key_prefix=""):
                 
                 with conn.session as session:
                     for _, f in df_rep.iterrows():
-                        mat_item = str(f['matricula']).split('.')[0].strip()
+                        mat_item = str(f['matricula']).strip()
                         sem_item = int(f['semestre'])
                         fecha_item = str(f['fecha']).strip()
                         motivo_item = str(f['motivo']).strip()
@@ -737,16 +720,16 @@ def modulo_carga_datos(key_prefix=""):
 
     # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL
     filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
-    alumnos_filtrados_ind = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
-    if not alumnos_filtrados_ind:
+    alumnos_filtrados = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
+    if not alumnos_filtrados:
         st.error("Ningún alumno coincide.")
         return
 
-    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados_ind]
+    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados]
     alumno_selec = st.selectbox("Selecciona al Alumno:", opciones_alumnos, key=f"{key_prefix}_al_sel_gen")
     mat_limpia = alumno_selec.split(" - ")[0]
-    datos_al_ind = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
-    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al_ind[1], datos_al_ind[2], datos_al_ind[4], datos_al_ind[5]
+    datos_al = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
+    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al[1], datos_al[2], datos_al[4], datos_al[5]
 
     # 2. REPORTE DISCIPLINARIO (AUTOMATIZACIÓN 3/3)
     if opcion == "Nuevo Reporte Disciplinario":
@@ -934,20 +917,16 @@ def modulo_gestion_usuarios():
         
         st.markdown("---")
         st.markdown("### 🗑️ Eliminar Usuario")
-        lista_usuarios = df_usuarios["Usuario"].tolist() if not df_usuarios.empty else []
-        if lista_usuarios:
-            usr_eliminar = st.selectbox("Selecciona un usuario para eliminar:", lista_usuarios)
-            if st.button("Eliminar Usuario Seleccionado"):
-                if usr_eliminar == st.session_state.usuario:
-                    st.error("No puedes eliminar tu propio usuario activo.")
-                else:
-                    with conn.session as session:
-                        session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
-                        session.commit()
-                    st.success(f"Usuario {usr_eliminar} eliminado.")
-                    st.rerun()
-        else:
-            st.info("No hay usuarios adicionales registrados.")
+        usr_eliminar = st.selectbox("Selecciona un usuario para eliminar:", df_usuarios["Usuario"].tolist())
+        if st.button("Eliminar Usuario Seleccionado"):
+            if usr_eliminar == st.session_state.usuario:
+                st.error("No puedes eliminar tu propio usuario activo.")
+            else:
+                with conn.session as session:
+                    session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
+                    session.commit()
+                st.success(f"Usuario {usr_eliminar} eliminado.")
+                st.rerun()
 
 # --- INTERFAZ POR ROL ---
 if st.session_state.rol in ["Subdirector", "Coordinación"]:
@@ -966,6 +945,7 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     m_b = al_sel.split(" - ")[0]
                     d_al = mostrar_expediente_completo(m_b)
                     if d_al:
+                        import re
                         sem_str = re.sub(r'\D', '', str(d_al[2]))
                         sem_val = int(sem_str) if sem_str else 1
                         sem_val = max(1, min(6, sem_val))
