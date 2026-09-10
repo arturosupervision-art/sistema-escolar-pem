@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import base64
 import io
@@ -595,8 +596,8 @@ def modulo_carga_datos(key_prefix=""):
             with conn.session as session:
                 for _, f in df.iterrows():
                     try:
-                        mat_item = str(f['matricula']).strip()
-                        wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
+                        mat_item = str(f['matricula']).split('.')[0].strip()
+                        wa = str(f['whatsapp_tutor']).split('.')[0].strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
                         ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
                         session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": int(f['semestre']), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
                         session.execute(text("INSERT INTO usuarios VALUES (:m, :m, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"m": mat_item})
@@ -704,7 +705,7 @@ def modulo_carga_datos(key_prefix=""):
                 
                 with conn.session as session:
                     for _, f in df_rep.iterrows():
-                        mat_item = str(f['matricula']).strip()
+                        mat_item = str(f['matricula']).split('.')[0].strip()
                         sem_item = int(f['semestre'])
                         fecha_item = str(f['fecha']).strip()
                         motivo_item = str(f['motivo']).strip()
@@ -933,16 +934,20 @@ def modulo_gestion_usuarios():
         
         st.markdown("---")
         st.markdown("### 🗑️ Eliminar Usuario")
-        usr_eliminar = st.selectbox("Selecciona un usuario para eliminar:", df_usuarios["Usuario"].tolist())
-        if st.button("Eliminar Usuario Seleccionado"):
-            if usr_eliminar == st.session_state.usuario:
-                st.error("No puedes eliminar tu propio usuario activo.")
-            else:
-                with conn.session as session:
-                    session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
-                    session.commit()
-                st.success(f"Usuario {usr_eliminar} eliminado.")
-                st.rerun()
+        lista_usuarios = df_usuarios["Usuario"].tolist() if not df_usuarios.empty else []
+        if lista_usuarios:
+            usr_eliminar = st.selectbox("Selecciona un usuario para eliminar:", lista_usuarios)
+            if st.button("Eliminar Usuario Seleccionado"):
+                if usr_eliminar == st.session_state.usuario:
+                    st.error("No puedes eliminar tu propio usuario activo.")
+                else:
+                    with conn.session as session:
+                        session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
+                        session.commit()
+                    st.success(f"Usuario {usr_eliminar} eliminado.")
+                    st.rerun()
+        else:
+            st.info("No hay usuarios adicionales registrados.")
 
 # --- INTERFAZ POR ROL ---
 if st.session_state.rol in ["Subdirector", "Coordinación"]:
@@ -961,7 +966,6 @@ if st.session_state.rol in ["Subdirector", "Coordinación"]:
                     m_b = al_sel.split(" - ")[0]
                     d_al = mostrar_expediente_completo(m_b)
                     if d_al:
-                        import re
                         sem_str = re.sub(r'\D', '', str(d_al[2]))
                         sem_val = int(sem_str) if sem_str else 1
                         sem_val = max(1, min(6, sem_val))
