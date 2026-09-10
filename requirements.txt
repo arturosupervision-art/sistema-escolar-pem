@@ -4,3 +4,4 @@ sqlalchemy
 psycopg2-binary
 extra-streamlit-components
 st-supabase-connection
+openpyxl
