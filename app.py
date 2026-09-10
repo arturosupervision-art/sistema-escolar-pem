@@ -38,6 +38,53 @@ def obtener_fecha_hora_mexico():
 def obtener_siguiente_dia_habil(fecha_actual):
     dia = fecha_actual + timedelta(days=1)
     while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
+        dia +=Tienes toda la razón, perdí el enfoque; este sistema lo diseñamos exclusivamente para el control central de Subdirección, Coordinación y Alumnos, sin accesos ni asignaciones para docentes. Revisando tu base de datos en `image_411914.png`, confirmo que la estructura de grupos utiliza la nomenclatura exacta de 1, 2, 3, 4 y 1V.
+
+He ajustado los valores de ejemplo y los campos de captura en el código para que reflejen esta realidad, manteniendo intacta toda la lógica y la arquitectura que ya construimos[cite: 1].
+
+**Código Completo del Sistema (Actualizado)**
+
+```python
+import os
+import time
+import base64
+import io
+import smtplib
+import urllib.parse
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+import extra_streamlit_components as stx
+import pandas as pd
+import streamlit as st
+import streamlit.components.v1 as components
+from sqlalchemy import text
+
+# Definir la ruta exacta de la imagen para Streamlit Cloud
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGO_PATH = os.path.join(BASE_DIR, "logo 172.png")
+
+# ==============================================================================
+# CONFIGURACIÓN DE SERVICIOS Y PÁGINA
+# ==============================================================================
+CORREO_EMISOR = "notificaciones@pem.edu.mx"
+PASSWORD_CORREO = "mqtxcnxwycqflxip"
+
+st.set_page_config(page_title="Sistema Control Escolar - Prep. Edo. de México", layout="wide")
+CREDITOS = "Sistema diseñado por: LEM Arturo Javier Diaz Salazar, Subdirector Académico de la Preparatoria Estado de México."
+
+# Inicializar conexión a Supabase
+conn = st.connection("supabase", type="sql")
+
+# Función helper para obtener siempre la hora exacta de CDMX / Edo. Méx.
+def obtener_fecha_hora_mexico():
+    return datetime.now(ZoneInfo("America/Mexico_City"))
+
+def obtener_siguiente_dia_habil(fecha_actual):
+    dia = fecha_actual + timedelta(days=1)
+    while dia.weekday() > 4: # 5 es Sábado, 6 es Domingo
         dia += timedelta(days=1)
     return dia
 
@@ -145,7 +192,7 @@ def generar_link_whatsapp(telefono, nombre_alumno, tipo_evento, detalle):
     )
     
     texto_enc = urllib.parse.quote(texto)
-    return f"https://api.whatsapp.com/send?phone={tel_limpio}&text={texto_enc}"
+    return f"[https://api.whatsapp.com/send?phone=](https://api.whatsapp.com/send?phone=){tel_limpio}&text={texto_enc}"
 
 def renderizar_lista_enlaces_whatsapp(lista_links):
     if not lista_links:
@@ -268,8 +315,8 @@ def inicializar_bd():
             session.execute(text("INSERT INTO usuarios VALUES ('arturo.subdirector', 'admin123', 'Subdirector') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('coordinacion.prepa', 'coord123', 'Coordinación') ON CONFLICT (usuario) DO NOTHING"))
             session.execute(text("INSERT INTO usuarios VALUES ('2026001', 'alumno123', 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, 'A', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
-            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, 'B', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026001', 'Juan Pérez Gómez', 3, '3', 'tutor.juan@gmail.com', '7221234567') ON CONFLICT (matricula) DO NOTHING"))
+            session.execute(text("INSERT INTO alumnos VALUES ('2026002', 'María Luisa Hernández', 1, '1V', 'tutor.maria@gmail.com', '7229876543') ON CONFLICT (matricula) DO NOTHING"))
             session.commit()
 
 inicializar_bd()
@@ -439,650 +486,10 @@ def mostrar_boleta(matricula, nombre, grupo, semestre_selec):
         """
         st.write("---")
         components.html(f"""
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <script src="[https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js](https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js)"></script>
         
         <div style="position: absolute; left: -9999px; top: 0; width: 850px;">
             {html_completo_pdf}
         </div>
 
-        <button onclick="descargarPDFHorizontal()" style="background-color: #198754; color: white; border: none; padding: 12px 24px; font-size: 14px; font-weight: bold; border-radius: 6px; cursor: pointer;">➡️ DESCARGAR BOLETA EN FORMATO HORIZONTAL (PDF)</button>
-        
-        <script>
-        function descargarPDFHorizontal() {{
-            const elemento = document.getElementById('boleta-imprimir');
-            const opciones = {{ 
-                margin: [0.5, 0.5, 0.5, 0.5], 
-                filename: 'Boleta_{matricula}_Semestre_{semestre_selec}.pdf', 
-                image: {{ type: 'jpeg', quality: 0.98 }}, 
-                html2canvas: {{ scale: 2, useCORS: true, allowTaint: true }}, 
-                jsPDF: {{ unit: 'in', format: 'letter', orientation: 'landscape' }} 
-            }};
-            html2pdf().set(opciones).from(elemento).save();
-        }}
-        </script>""", height=80)
-    else: 
-        st.warning("No se encontraron calificaciones registradas para este semestre.")
-
-def mostrar_expediente_completo(matricula):
-    df_al = conn.query("SELECT * FROM alumnos WHERE matricula = :m", params={"m": matricula}, ttl=0)
-    
-    if not df_al.empty:
-        alumno = df_al.values.tolist()
-        al_mat, al_nom, al_sem, al_gpo = alumno[0][0], alumno[0][1], alumno[0][2], alumno[0][3]
-        al_correo = alumno[0][4] if len(alumno[0]) > 4 else "Sin correo"
-        al_wa = alumno[0][5] if len(alumno[0]) > 5 else "Sin número"
-        
-        st.markdown(f"""
-        <div style='background-color:#fff; border:1px solid #ddd; border-radius:8px; padding:15px; margin-bottom:15px;'>
-            <span style='color:#777; font-size:12px; font-weight:bold;'>EXPEDIENTE ACADÉMICO</span><br>
-            <span style='font-size:18px; color:#4B1C24; font-weight:bold;'>{al_nom}</span> &nbsp;|&nbsp; <span><b>Grupo:</b> {al_gpo}</span> &nbsp;|&nbsp; <span><b>Semestre:</b> {al_sem}°</span><br>
-            <span style='font-size:12px; color:#555;'>📧 Correo: <b>{al_correo or 'N/A'}</b> | 📱 WhatsApp: <b>{al_wa or 'N/A'}</b></span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        calif = conn.query("SELECT semestre, materia, parcial1, parcial2, final FROM calificaciones WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
-        reps = conn.query("SELECT semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista FROM reportes WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
-        ayudas = conn.query("SELECT semestre, tipo_ayuda, observaciones FROM ayuda WHERE matricula = :m", params={"m": al_mat}, ttl=0).values.tolist()
-        
-        st.markdown("### 📚 Trayectoria de Historial Desglosado")
-        semestres_brutos = [c[0] for c in calif] + [r[0] for r in reps] + [a[0] for a in ayudas] + [al_sem]
-        semestres_disponibles = sorted(list(set([int(s) for s in semestres_brutos if pd.notnull(s) and str(s).strip().isdigit()])))
-        
-        for sem in semestres_disponibles:
-            with st.expander(f"➔ Ver Historial Completo del {sem}° Semestre", expanded=True):
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.markdown("**📊 Calificaciones**")
-                    c_sem = [x for x in calif if x[0] == sem]
-                    if c_sem:
-                        for c in c_sem:
-                            _, ef_str, prom_o = calcular_reglas_boleta(c[2], c[3], c[4])
-                            p1_val = c[2] if c[2] is not None else 0.0
-                            p2_val = c[3] if c[3] is not None else 0.0
-                            st.info(f"**{c[1]}**\n1P: {p1_val} | 2P: {p2_val}\nFinal: {ef_str} | Ord: {prom_o:.1f}")
-                    else: 
-                        st.caption("*Sin asignaturas*")
-                        
-                with col2:
-                    st.markdown("**⚠️ Reportes Escolares y Bitácora**")
-                    r_sem = [x for x in reps if x[0] == sem]
-                    if r_sem:
-                        for r in r_sem:
-                            tipo_tit = r[4] or "Disciplinario"
-                            notif_info = f"\n📜 *Evidencia:* {r[3]}" if len(r) > 3 and r[3] else ""
-                            cap_info = f"\n👤 *Capturista:* {r[5]}" if len(r) > 5 and r[5] else ""
-                            st.error(f"📌 **{tipo_tit}** ({r[1]})\n{r[2]}{notif_info}{cap_info}")
-                    else: 
-                        st.success("✓ Conducta / Expediente Limpio")
-                        
-                with col3:
-                    st.markdown("**📍 Apoyos y Tutorías**")
-                    a_sem = [x for x in ayudas if x[0] == sem]
-                    if a_sem:
-                        for a in a_sem: 
-                            st.warning(f"🌟 {a[1]}\n{a[2]}")
-                    else: 
-                        st.caption("*Sin requerimientos*")
-        return al_mat, al_nom, al_sem, al_gpo, al_correo, al_wa
-    else:
-        st.error("No se encontró ningún alumno.")
-        return None
-
-# GENERADORES EXCEL
-def generar_excel_muestra():
-    df = pd.DataFrame({"matricula": ["2026003"], "nombre": ["Pedro Lopez"], "semestre": [1], "grupo": ["A"], "correo_tutor": ["padre@gmail.com"], "whatsapp_tutor": ["7221112233"]})
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
-    return out.getvalue()
-
-def generar_excel_muestra_rep_academicos():
-    df = pd.DataFrame({"matricula": ["2026001"], "semestre": [3], "materia": ["MATEMATICAS III"], "fecha": [obtener_fecha_hora_mexico().strftime("%Y-%m-%d")], "motivo": ["I Inasistencia"]})
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine='openpyxl') as w: df.to_excel(w, index=False)
-    return out.getvalue()
-
-# ----------------- MÓDULO DE CARGA Y CAPTURA GENERAL -----------------
-def modulo_carga_datos(key_prefix=""):
-    opciones_captura = ["Nuevo Reporte Académico", "Nuevo Reporte Disciplinario", "Nueva Calificación", "Cargar Ayuda Académica"]
-    
-    if st.session_state.rol == "Subdirector":
-        opciones_captura.append("Registrar Nuevo Alumno")
-        
-    opcion = st.selectbox(
-        "¿Qué deseas capturar?", 
-        opciones_captura, 
-        key=f"{key_prefix}_opcion"
-    )
-    alumnos_disponibles = obtener_lista_alumnos()
-    
-    if not alumnos_disponibles and opcion != "Registrar Nuevo Alumno":
-        st.warning("⚠️ Primero debes dar de alta al menos a un alumno.")
-        return
-
-    estampa_fecha_hora = obtener_fecha_hora_mexico().strftime("%Y-%m-%d %H:%M:%S")
-    usr_actual = st.session_state.usuario
-
-    # REGISTRAR NUEVO ALUMNO
-    if opcion == "Registrar Nuevo Alumno":
-        st.markdown("### 👤 Registro Individual de Alumno")
-        with st.form(f"{key_prefix}_form_alumno"):
-            mat = st.text_input("Matrícula del Alumno")
-            nombre_al = st.text_input("Nombre completo")
-            sem = st.number_input("Semestre Inicial", min_value=1, max_value=6, value=1)
-            grupo_al = st.text_input("Grupo (Ej. A)")
-            correo_t = st.text_input("Correo del Tutor/Padre de Familia")
-            wa_t = st.text_input("Número de WhatsApp del Tutor (10 dígitos)")
-            
-            if st.form_submit_button("Dar de Alta Alumno"):
-                if mat.strip() and nombre_al.strip():
-                    try:
-                        with conn.session as session:
-                            session.execute(text("INSERT INTO alumnos VALUES (:mat, :nom, :sem, :gpo, :corr, :wa) ON CONFLICT (matricula) DO UPDATE SET nombre=:nom, semestre=:sem, grupo=:gpo, correo_tutor=:corr, whatsapp_tutor=:wa"), {"mat": mat.strip(), "nom": nombre_al.strip(), "sem": sem, "gpo": grupo_al.strip().upper(), "corr": correo_t.strip(), "wa": wa_t.strip()})
-                            session.execute(text("INSERT INTO usuarios VALUES (:usr, :pass, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"usr": mat.strip(), "pass": mat.strip()})
-                            session.commit()
-                        st.success(f"¡Alumno {nombre_al} registrado con éxito!")
-                        st.rerun()
-                    except Exception as e: 
-                        st.error(f"Error: {e}")
-
-        st.write("---")
-        st.markdown("### 📊 Carga Masiva desde Excel")
-        st.download_button("📥 Plantilla Alumnos", data=generar_excel_muestra(), file_name="plantilla_alumnos.xlsx")
-        archivo = st.file_uploader("Sube Excel de Alumnos:", type=["xlsx"], key=f"{key_prefix}_up_al")
-        if archivo and st.button("🚀 Procesar e Importar Alumnos", key=f"{key_prefix}_btn_proc_al"):
-            df = pd.read_excel(archivo)
-            ex, err = 0, 0
-            with conn.session as session:
-                for _, f in df.iterrows():
-                    try:
-                        mat_item = str(f['matricula']).strip()
-                        wa = str(f['whatsapp_tutor']).strip() if 'whatsapp_tutor' in df.columns and pd.notnull(f['whatsapp_tutor']) else ""
-                        ct = str(f['correo_tutor']).strip() if 'correo_tutor' in df.columns and pd.notnull(f['correo_tutor']) else ""
-                        session.execute(text("INSERT INTO alumnos VALUES (:m, :n, :s, :g, :c, :w) ON CONFLICT (matricula) DO UPDATE SET nombre=:n, semestre=:s, grupo=:g, correo_tutor=:c, whatsapp_tutor=:w"), {"m": mat_item, "n": str(f['nombre']).strip(), "s": int(f['semestre']), "g": str(f['grupo']).strip().upper(), "c": ct, "w": wa})
-                        session.execute(text("INSERT INTO usuarios VALUES (:m, :m, 'Alumno/Padre') ON CONFLICT (usuario) DO NOTHING"), {"m": mat_item})
-                        ex += 1
-                    except: 
-                        err += 1
-                session.commit()
-            st.success(f"Éxito: {ex} añadidos, {err} omitidos.")
-            st.rerun()
-        return
-
-    # 1. REPORTE ACADÉMICO MULTIPLE POR MATERIA
-    if opcion == "Nuevo Reporte Académico":
-        tab_ind, tab_mas = st.tabs(["✍️ Captura por Lote / Materia", "📊 Carga Masiva (Excel / CSV)"])
-        
-        with tab_ind:
-            st.markdown("### 📋 Registro de Reporte Académico Dinámico")
-            
-            sem_rep = st.number_input("1. Semestre Académico:", min_value=1, max_value=6, value=1, key=f"{key_prefix}_sem_ac")
-            
-            grupos_disp = sorted(list(set([a[3] for a in alumnos_disponibles if a[3] and a[2] == sem_rep])))
-            gpo_sel = st.selectbox("2. Selecciona Grupo a reportar:", grupos_disp if grupos_disp else ["SIN GRUPOS"], key=f"{key_prefix}_gpo_ac")
-            
-            materia_rep = st.selectbox("3. Selecciona la Materia:", MATERIAS_POR_SEMESTRE.get(sem_rep, ["OTRA"]), key=f"{key_prefix}_mat_ac")
-            
-            alumnos_filtrados = [a for a in alumnos_disponibles if a[2] == sem_rep and a[3] == gpo_sel]
-            opciones_alumnos = [f"{a[0]} - {a[1]}" for a in alumnos_filtrados]
-            
-            alumnos_sel_str = st.multiselect("4. Busca y selecciona a los alumnos reportados:", opciones_alumnos, key=f"{key_prefix}_al_sel_mul")
-            
-            if alumnos_sel_str:
-                st.write("---")
-                st.markdown("#### 🎯 Asignar Motivos y Observaciones por Alumno")
-                datos_lote = {}
-                
-                for al_str in alumnos_sel_str:
-                    mat_a = al_str.split(" - ")[0]
-                    nom_a = al_str.split(" - ")[1]
-                    
-                    st.markdown(f"**👤 {nom_a} ({mat_a})**")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        motivo_sel = st.selectbox("Motivo:", MOTIVOS_ACADEMICOS, key=f"mot_{mat_a}")
-                        if motivo_sel == "Otro motivo (especificar)":
-                            motivo_sel = st.text_input("Especificar motivo:", key=f"esp_{mat_a}")
-                    with col2:
-                        obs_texto = st.text_input("Actividad u observaciones (opcional):", key=f"obs_{mat_a}")
-                        
-                    datos_lote[mat_a] = {"nombre": nom_a, "motivo": motivo_sel, "obs": obs_texto}
-                    
-                if st.button("🚀 Guardar y Notificar Lote Completo", type="primary", key=f"{key_prefix}_btn_ac_mul"):
-                    temp_links = []
-                    c_ok, c_correos = 0, 0
-                    
-                    with conn.session as session:
-                        for mat_a, val in datos_lote.items():
-                            mot_final = val['motivo'].strip()
-                            obs_final = val['obs'].strip()
-                            
-                            fecha_incidencia_obj = obtener_dia_habil_anterior(obtener_fecha_hora_mexico())
-                            fecha_incidencia_db = fecha_incidencia_obj.strftime("%Y-%m-%d")
-                            fecha_incidencia_msg = fecha_incidencia_obj.strftime("%d/%m/%Y")
-
-                            texto_guardar = f"[{materia_rep}] {mot_final}"
-                            if obs_final:
-                                texto_guardar += f" | Obs: {obs_final}"
-                            
-                            texto_guardar += f" (Corresponde al: {fecha_incidencia_msg})"
-                                
-                            evidencia_auto = f"Registro Lote [{estampa_fecha_hora}]"
-                            
-                            session.execute(
-                                text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
-                                {"m": mat_a, "s": sem_rep, "f": fecha_incidencia_db, "mot": texto_guardar, "ev": evidencia_auto, "cap": usr_actual}
-                            )
-                            c_ok += 1
-                            
-                            datos_al = [a for a in alumnos_filtrados if a[0] == mat_a][0]
-                            correo_t = datos_al[4]
-                            wa_t = datos_al[5]
-                            
-                            ok_c, _ = enviar_notificacion_correo(correo_t, val['nombre'], mat_a, "Reporte Académico", f"Materia: {materia_rep}<br>Detalle: {texto_guardar}")
-                            if ok_c: c_correos += 1
-                            
-                            link = generar_link_whatsapp(wa_t, val['nombre'], "Reporte Académico", texto_guardar)
-                            temp_links.append({"Matrícula": mat_a, "Alumno": val['nombre'], "Detalle": texto_guardar, "Link": link})
-                        
-                        session.commit()
-                        
-                    st.session_state.links_masivos_wa = temp_links
-                    st.success(f"🎉 ¡Lote procesado! {c_ok} reportes guardados y {c_correos} correos automáticos enviados.")
-
-            if st.session_state.links_masivos_wa:
-                renderizar_lista_enlaces_whatsapp(st.session_state.links_masivos_wa)
-
-        with tab_mas:
-            st.markdown("#### 🚀 Carga Masiva de Reportes Académicos desde Archivo")
-            st.download_button("📥 Descargar Plantilla", data=generar_excel_muestra_rep_academicos(), file_name="plantilla_reportes_academicos.xlsx")
-            file_ac = st.file_uploader("Sube archivo Excel/CSV para Reportes Académicos:", type=["xlsx", "csv"], key=f"{key_prefix}_file_ac_mas")
-            
-            if file_ac and st.button("🚀 Procesar Carga Masiva", key=f"{key_prefix}_btn_proc_mas"):
-                df_rep = pd.read_csv(file_ac) if file_ac.name.endswith(".csv") else pd.read_excel(file_ac)
-                c_ok, c_correos = 0, 0
-                temp_links = []
-                
-                with conn.session as session:
-                    for _, f in df_rep.iterrows():
-                        mat_item = str(f['matricula']).strip()
-                        sem_item = int(f['semestre'])
-                        fecha_item = str(f['fecha']).strip()
-                        motivo_item = str(f['motivo']).strip()
-                        materia_item = str(f.get('materia', 'OTRA')).strip()
-                        motivo_guardar_mas = f"[{materia_item}] {motivo_item}"
-                        evidencia_auto = f"Registro Carga Masiva [{estampa_fecha_hora}]"
-
-                        session.execute(
-                            text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Académico', :cap)"), 
-                            {"m": mat_item, "s": sem_item, "f": fecha_item, "mot": motivo_guardar_mas, "ev": evidencia_auto, "cap": usr_actual}
-                        )
-                        c_ok += 1
-                        
-                        al_df = conn.query("SELECT nombre, correo_tutor, whatsapp_tutor FROM alumnos WHERE matricula = :m", params={"m": mat_item}, ttl=0)
-                        if not al_df.empty:
-                            nom_a, corr_t, wa_t = al_df.iloc[0]['nombre'], al_df.iloc[0]['correo_tutor'], al_df.iloc[0]['whatsapp_tutor']
-                            ok_c, _ = enviar_notificacion_correo(corr_t, nom_a, mat_item, "Reporte Académico", f"Motivo: {motivo_guardar_mas}")
-                            if ok_c: c_correos += 1
-                            link = generar_link_whatsapp(wa_t, nom_a, "Reporte Académico", motivo_guardar_mas)
-                            temp_links.append({"Matrícula": mat_item, "Alumno": nom_a, "Detalle": motivo_guardar_mas, "Link": link})
-                    session.commit()
-                
-                st.session_state.links_masivos_wa = temp_links
-                st.success(f"🎉 ¡Proceso masivo completado!\n- 📋 {c_ok} Reportes registrados automáticamente.\n- 📧 {c_correos} Correos enviados.")
-
-            if st.session_state.links_masivos_wa:
-                renderizar_lista_enlaces_whatsapp(st.session_state.links_masivos_wa)
-        return
-
-    # CAMPOS GENERALES DE SELECCIÓN INDIVIDUAL
-    filtro_mat = st.text_input("🔍 Buscar por Matrícula:", key=f"{key_prefix}_filt_txt_gen")
-    alumnos_filtrados_ind = [a for a in alumnos_disponibles if filtro_mat.strip() in a[0]] if filtro_mat else alumnos_disponibles
-    if not alumnos_filtrados_ind:
-        st.error("Ningún alumno coincide.")
-        return
-
-    opciones_alumnos = [f"{a[0]} - {a[1]} (Semestre {a[2]}°)" for a in alumnos_filtrados_ind]
-    alumno_selec = st.selectbox("Selecciona al Alumno:", opciones_alumnos, key=f"{key_prefix}_al_sel_gen")
-    mat_limpia = alumno_selec.split(" - ")[0]
-    datos_al_ind = [a for a in alumnos_disponibles if a[0] == mat_limpia][0]
-    nom_alumno, semestre_def, correo_tutor, wa_tutor = datos_al_ind[1], datos_al_ind[2], datos_al_ind[4], datos_al_ind[5]
-
-    # 2. REPORTE DISCIPLINARIO (AUTOMATIZACIÓN 3/3)
-    if opcion == "Nuevo Reporte Disciplinario":
-        res_disc = conn.query("SELECT COUNT(*) as c FROM reportes WHERE matricula = :m AND tipo_reporte = 'Disciplinario'", params={"m": mat_limpia}, ttl=0)
-        total_previo = int(res_disc.iloc[0]['c']) if not res_disc.empty else 0
-        acumulados_semestre = total_previo % 3
-        
-        st.markdown("### 📋 Registro de Reporte Disciplinario")
-        st.warning(f"⚠️ **Reportes Disciplinarios Acumulados: {acumulados_semestre}/3**")
-        
-        sem_rep = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def))
-        motivo_disc = st.text_area("Descripción Detallada de la Falta Disciplinaria:")
-        metodo_notif = st.selectbox("¿Medio por el que se le notificó al Padre de Familia / Tutor?", OPCIONES_NOTIFICACION_DISCIPLINARIO, index=0)
-        fecha_rep = obtener_fecha_hora_mexico().strftime("%Y-%m-%d")
-
-        st.info(f"📧 **Correo Tutor:** {correo_tutor or 'Sin correo'} | 📱 **WhatsApp Tutor:** {wa_tutor or 'Sin teléfono'}")
-
-        if st.button("Registrar Reporte Disciplinario"):
-            if motivo_disc.strip():
-                evidencia_auto = f"{metodo_notif} [{estampa_fecha_hora}]"
-                nuevo_total = total_previo + 1
-                
-                with conn.session as session:
-                    session.execute(
-                        text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Disciplinario', :cap)"), 
-                        {"m": mat_limpia, "s": sem_rep, "f": fecha_rep, "mot": motivo_disc.strip(), "ev": evidencia_auto, "cap": usr_actual}
-                    )
-                    
-                    if nuevo_total % 3 == 0:
-                        prox_habil = obtener_siguiente_dia_habil(obtener_fecha_hora_mexico())
-                        fecha_prox_str = prox_habil.strftime("%Y-%m-%d")
-                        motivo_suspension = f"Suspensión automática por acumulación de 3 reportes disciplinarios. Aplicable para el día hábil: {prox_habil.strftime('%d/%m/%Y')}."
-                        ev_susp = f"Sistema Automático 3/3 [{estampa_fecha_hora}]"
-                        
-                        session.execute(
-                            text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Suspensión', :cap)"), 
-                            {"m": mat_limpia, "s": sem_rep, "f": fecha_prox_str, "mot": motivo_suspension, "ev": ev_susp, "cap": 'Sistema Bot'}
-                        )
-                        st.error(f"🚨 **ALERTA A COORDINACIÓN:** El alumno ha juntado 3 reportes disciplinarios. Se registró una **Suspensión** automática programada para el {prox_habil.strftime('%d/%m/%Y')}.")
-                        enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Notificación de Suspensión (3er Reporte)", motivo_suspension)
-                    
-                    session.commit()
-                
-                enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Reporte Disciplinario", f"Detalle: {motivo_disc}")
-                st.success(f"✅ ¡Reporte Disciplinario guardado! (Conteo actualizado).")
-                
-                link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Reporte Disciplinario", motivo_disc)
-                renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": motivo_disc, "Link": link_wa}])
-
-    # 3. NUEVA CALIFICACIÓN
-    elif opcion == "Nueva Calificación":
-        st.markdown("### 📊 Captura de Calificación")
-        sem_calif = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def))
-        materia_selec = st.selectbox("Asignatura:", MATERIAS_POR_SEMESTRE.get(sem_calif, ["OTRA"]))
-        tipo_parcial = st.selectbox("Parcial:", ["Examen 1º Parcial", "Examen 2º Parcial", "Examen Final"])
-        calif_nota = st.number_input("Nota", min_value=0.0, max_value=10.0, step=0.1)
-        
-        if st.button("Guardar Calificación"):
-            res_ex = conn.query("SELECT id FROM calificaciones WHERE matricula = :m AND semestre = :s AND materia = :mat", params={"m": mat_limpia, "s": sem_calif, "mat": materia_selec}, ttl=0)
-            col = "parcial1" if tipo_parcial == "Examen 1º Parcial" else "parcial2" if tipo_parcial == "Examen 2º Parcial" else "final"
-            evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
-            
-            with conn.session as session:
-                if not res_ex.empty:
-                    c_id = int(res_ex.iloc[0]['id'])
-                    session.execute(text(f"UPDATE calificaciones SET {col} = :nota WHERE id = :id"), {"nota": calif_nota, "id": c_id})
-                else:
-                    session.execute(text(f"INSERT INTO calificaciones (matricula, semestre, materia, {col}) VALUES (:m, :s, :mat, :nota)"), {"m": mat_limpia, "s": sem_calif, "mat": materia_selec, "nota": calif_nota})
-                
-                session.execute(
-                    text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Aviso Calificación', :cap)"), 
-                    {"m": mat_limpia, "s": sem_calif, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{materia_selec} ({tipo_parcial}): {calif_nota}", "ev": evidencia_auto, "cap": usr_actual}
-                )
-                session.commit()
-            
-            enviar_notificacion_correo(correo_tutor, nom_alumno, mat_limpia, "Calificación", f"Materia: {materia_selec}<br>Nota: {calif_nota}")
-            st.success(f"✅ ¡Calificación guardada y certificada en la bitácora ({estampa_fecha_hora})!")
-            
-            detalle_cal = f"{materia_selec} ({tipo_parcial}): {calif_nota}"
-            link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Aviso de Calificación", detalle_cal)
-            renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": detalle_cal, "Link": link_wa}])
-
-    # 4. AYUDA ACADÉMICA
-    elif opcion == "Cargar Ayuda Académica":
-        st.markdown("### 🌟 Registro de Apoyo o Tutoría Especial")
-        sem_a = st.number_input("Semestre", min_value=1, max_value=6, value=int(semestre_def))
-        tipo_a = st.selectbox("Tipo de Ayuda", ["Asesorías Académicas", "Tutoría Psicoeducativa", "Plan de Regularización"])
-        obs_a = st.text_area("Observaciones")
-        
-        if st.button("Guardar Ayuda y Certificar"):
-            evidencia_auto = f"Registro Sistema [{estampa_fecha_hora}]"
-            with conn.session as session:
-                session.execute(text("INSERT INTO ayuda (matricula, semestre, tipo_ayuda, observaciones) VALUES (:m, :s, :t, :o)"), {"m": mat_limpia, "s": sem_a, "t": tipo_a, "o": obs_a})
-                session.execute(
-                    text("INSERT INTO reportes (matricula, semestre, fecha, motivo, metodo_notificacion, tipo_reporte, capturista) VALUES (:m, :s, :f, :mot, :ev, 'Apoyo/Tutoría', :cap)"), 
-                    {"m": mat_limpia, "s": sem_a, "f": obtener_fecha_hora_mexico().strftime("%Y-%m-%d"), "mot": f"{tipo_a}: {obs_a}", "ev": evidencia_auto, "cap": usr_actual}
-                )
-                session.commit()
-            
-            st.success(f"✅ ¡Apoyo registrado y certificado automáticamente ({estampa_fecha_hora})!")
-            
-            detalle_ayuda = f"{tipo_a}: {obs_a}"
-            link_wa = generar_link_whatsapp(wa_tutor, nom_alumno, "Apoyo/Tutoría", detalle_ayuda)
-            renderizar_lista_enlaces_whatsapp([{"Matrícula": mat_limpia, "Alumno": nom_alumno, "Detalle": detalle_ayuda, "Link": link_wa}])
-
-# ----------------- VISTA DE TUTORÍAS Y BITÁCORA DE EVIDENCIAS -----------------
-def modulo_tutorias():
-    st.title("🎯 Módulo de Bitácora y Tutorías - Evidencias Oficiales")
-    st.info("Consulta y descarga en tiempo real la bitácora oficial. Cada registro contiene la fecha y hora exacta de captura/envío.")
-    
-    col_f1, col_f2, col_f3 = st.columns(3)
-    with col_f1: fecha_sel = st.date_input("Filtrar por Fecha/Día:", obtener_fecha_hora_mexico())
-    with col_f2: sem_sel = st.selectbox("Filtrar por Semestre:", ["Todos", 1, 2, 3, 4, 5, 6])
-    with col_f3: gpo_sel = st.text_input("Filtrar por Grupo (Dejar vacío para todos):")
-
-    fecha_str = fecha_sel.strftime("%Y-%m-%d")
-    
-    query = """
-    SELECT r.id, r.fecha, r.capturista, a.matricula, a.nombre, a.semestre, a.grupo, r.tipo_reporte, r.motivo, r.metodo_notificacion, a.whatsapp_tutor 
-    FROM reportes r 
-    JOIN alumnos a ON r.matricula = a.matricula 
-    WHERE r.fecha = :f
-    """
-    params = {"f": fecha_str}
-    
-    if sem_sel != "Todos":
-        query += " AND a.semestre = :sem"
-        params["sem"] = sem_sel
-    if gpo_sel.strip():
-        query += " AND UPPER(a.grupo) = :gpo"
-        params["gpo"] = gpo_sel.strip().upper()
-
-    df_tutoria = conn.query(query, params=params, ttl=0)
-
-    st.subheader(f"📊 Registros del Día: {fecha_sel.strftime('%d/%m/%Y')}")
-    
-    if not df_tutoria.empty:
-        df_tutoria.columns = ["ID", "Fecha Captura", "Usuario Capturista", "Matrícula", "Nombre Alumno", "Semestre", "Grupo", "Tipo Evento", "Motivo / Detalle", "Evidencia", "WhatsApp Tutor"]
-        st.dataframe(df_tutoria, use_container_width=True, hide_index=True)
-        
-        out_tut = io.BytesIO()
-        with pd.ExcelWriter(out_tut, engine='openpyxl') as writer:
-            df_tutoria.to_excel(writer, index=False, sheet_name='Bitacora_Evidencias')
-            
-        st.download_button(
-            label="📥 Descargar Reporte Completo de Evidencias (Excel)",
-            data=out_tut.getvalue(),
-            file_name=f"Evidencias_Oficiales_{fecha_str}_Sem_{sem_sel}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else: 
-        st.warning("No hay registros o evidencias guardadas para la fecha y filtros seleccionados.")
-
-# ----------------- MÓDULO DE GESTIÓN DE USUARIOS -----------------
-def modulo_gestion_usuarios():
-    st.header("⚙️ Administración de Usuarios del Sistema")
-    
-    col_u1, col_u2 = st.columns([1, 1])
-    
-    with col_u1:
-        st.markdown("### ➕ Registrar Nuevo Usuario")
-        with st.form("form_alta_usuario"):
-            nuevo_usr = st.text_input("Usuario (Ej. Matrícula o Nombre):")
-            nuevo_pass = st.text_input("Contraseña:", type="password")
-            nuevo_rol = st.selectbox("Rol del Usuario:", ["Alumno/Padre", "Coordinación", "Subdirector"])
-            
-            if st.form_submit_button("Crear Usuario", type="primary"):
-                if nuevo_usr.strip() and nuevo_pass.strip():
-                    try:
-                        with conn.session as session:
-                            session.execute(text("INSERT INTO usuarios VALUES (:u, :p, :r) ON CONFLICT (usuario) DO NOTHING"), {"u": nuevo_usr.strip(), "p": nuevo_pass.strip(), "r": nuevo_rol})
-                            session.commit()
-                        st.success(f"¡Usuario **{nuevo_usr}** creado correctamente con el rol **{nuevo_rol}**!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al crear usuario (quizá ya existe): {e}")
-                else:
-                    st.warning("Completa todos los campos.")
-
-    with col_u2:
-        st.markdown("### 👥 Usuarios Registrados Actuales")
-        df_usuarios = conn.query('SELECT usuario AS "Usuario", rol AS "Rol" FROM usuarios', ttl=0)
-        
-        st.dataframe(df_usuarios, use_container_width=True, hide_index=True)
-        
-        st.markdown("---")
-        st.markdown("### 🗑️ Eliminar Usuario")
-        usr_eliminar = st.selectbox("Selecciona un usuario para eliminar:", df_usuarios["Usuario"].tolist())
-        if st.button("Eliminar Usuario Seleccionado"):
-            if usr_eliminar == st.session_state.usuario:
-                st.error("No puedes eliminar tu propio usuario activo.")
-            else:
-                with conn.session as session:
-                    session.execute(text("DELETE FROM usuarios WHERE usuario = :u"), {"u": usr_eliminar})
-                    session.commit()
-                st.success(f"Usuario {usr_eliminar} eliminado.")
-                st.rerun()
-
-# --- INTERFAZ POR ROL ---
-if st.session_state.rol in ["Subdirector", "Coordinación"]:
-    p_tabs = ["🔍 Buscador Central", "📋 Administración de Alumnos", "📝 Captura de Datos", "🎯 Bitácora y Tutorías", "⚙️ Usuarios"] if st.session_state.rol == "Subdirector" else ["📝 Captura de Datos", "🎯 Bitácora y Tutorías", "🔍 Expedientes"]
-    pestanas = st.tabs(p_tabs)
-
-    if st.session_state.rol == "Subdirector":
-        # 1. BUSCADOR CENTRAL
-        with pestanas[0]:
-            alumnos_bd = obtener_lista_alumnos()
-            if alumnos_bd:
-                f_txt = st.text_input("🔍 Buscar Matrícula:")
-                a_fil = [a for a in alumnos_bd if f_txt.strip() in a[0]] if f_txt else alumnos_bd
-                if a_fil:
-                    al_sel = st.selectbox("Selecciona alumno:", [f"{a[0]} - {a[1]}" for a in a_fil])
-                    m_b = al_sel.split(" - ")[0]
-                    d_al = mostrar_expediente_completo(m_b)
-                    if d_al:
-                        import re
-                        sem_str = re.sub(r'\D', '', str(d_al[2]))
-                        sem_val = int(sem_str) if sem_str else 1
-                        sem_val = max(1, min(6, sem_val))
-                        sem_b = st.number_input("Semestre Boleta:", min_value=1, max_value=6, value=sem_val)
-                        mostrar_boleta(d_al[0], d_al[1], d_al[3], sem_b)
-
-        # 2. ADMINISTRACIÓN GLOBAL DE ALUMNOS
-        with pestanas[1]:
-            st.header("📋 Administración Global y Modificación de Alumnos")
-            alumnos_lista = obtener_lista_alumnos()
-            
-            if alumnos_lista:
-                df_admin = pd.DataFrame(alumnos_lista, columns=["Matrícula", "Nombre Completo", "Semestre", "Grupo", "Correo Tutor", "WhatsApp Tutor"])
-                
-                st.markdown("### ⚡ Acciones Masivas / En Lote")
-                col_m1, col_m2, col_m3 = st.columns(3)
-                
-                with col_m1: 
-                    alumnos_seleccionados = st.multiselect("Selecciona los alumnos:", df_admin["Matrícula"].tolist())
-                with col_m2: 
-                    accion_masiva = st.selectbox("¿Qué acción masiva aplicar?", ["---", "Cambiar de Semestre Masivo", "Cambiar de Grupo Masivo", "Eliminar Alumnos Seleccionados"])
-                with col_m3:
-                    if accion_masiva == "Cambiar de Semestre Masivo":
-                        nuevo_sem_m = st.number_input("Nuevo semestre:", min_value=1, max_value=6, value=1)
-                        if st.button("Aplicar Semestre Masivo", type="primary"):
-                            if alumnos_seleccionados:
-                                with conn.session as session:
-                                    for mat in alumnos_seleccionados:
-                                        session.execute(text("UPDATE alumnos SET semestre = :s WHERE matricula = :m"), {"s": nuevo_sem_m, "m": mat})
-                                    session.commit()
-                                st.success("¡Semestres actualizados correctamente!")
-                                st.rerun()
-                                
-                    elif accion_masiva == "Cambiar de Grupo Masivo":
-                        nuevo_gpo_m = st.text_input("Nuevo grupo:")
-                        if st.button("Aplicar Grupo Masivo", type="primary"):
-                            if alumnos_seleccionados and nuevo_gpo_m.strip():
-                                with conn.session as session:
-                                    for mat in alumnos_seleccionados:
-                                        session.execute(text("UPDATE alumnos SET grupo = :g WHERE matricula = :m"), {"g": nuevo_gpo_m.strip().upper(), "m": mat})
-                                    session.commit()
-                                st.success("¡Grupos actualizados correctamente!")
-                                st.rerun()
-                                
-                    elif accion_masiva == "Eliminar Alumnos Seleccionados":
-                        if st.button("🚨 ELIMINAR SELECCIONADOS", type="primary"):
-                            if alumnos_seleccionados:
-                                with conn.session as session:
-                                    for mat in alumnos_seleccionados:
-                                        session.execute(text("DELETE FROM alumnos WHERE matricula = :m"), {"m": mat})
-                                        session.execute(text("DELETE FROM calificaciones WHERE matricula = :m"), {"m": mat})
-                                        session.execute(text("DELETE FROM reportes WHERE matricula = :m"), {"m": mat})
-                                        session.execute(text("DELETE FROM ayuda WHERE matricula = :m"), {"m": mat})
-                                        session.execute(text("DELETE FROM usuarios WHERE usuario = :m"), {"m": mat})
-                                    session.commit()
-                                st.success("Alumnos eliminados exitosamente.")
-                                st.rerun()
-                                
-                st.write("---")
-                st.markdown("### 🔍 Lista de Alumnos Registrados")
-                st.dataframe(df_admin, use_container_width=True, hide_index=True)
-                
-                st.write("---")
-                col_ind1, col_ind2 = st.columns(2)
-                
-                with col_ind1:
-                    st.markdown("### ✏️ Modificar Alumno Individual")
-                    mat_mod = st.selectbox("Selecciona la matrícula a editar:", df_admin["Matrícula"].tolist(), key="sel_mod_ind")
-                    datos_act = [a for a in alumnos_lista if a[0] == mat_mod][0]
-                    
-                    nom_new = st.text_input("Modificar Nombre:", value=datos_act[1])
-                    sem_new = st.number_input("Modificar Semestre:", min_value=1, max_value=6, value=int(datos_act[2]))
-                    gpo_new = st.text_input("Modificar Grupo:", value=datos_act[3])
-                    correo_new = st.text_input("Modificar Correo Tutor:", value=datos_act[4] or "")
-                    wa_new = st.text_input("Modificar WhatsApp Tutor:", value=datos_act[5] or "")
-                    
-                    if st.button("💾 Guardar Cambios Individuales", type="primary"):
-                        with conn.session as session:
-                            session.execute(
-                                text("UPDATE alumnos SET nombre = :n, semestre = :s, grupo = :g, correo_tutor = :c, whatsapp_tutor = :w WHERE matricula = :m"), 
-                                {"n": nom_new.strip(), "s": sem_new, "g": gpo_new.strip().upper(), "c": correo_new.strip(), "w": wa_new.strip(), "m": mat_mod}
-                            )
-                            session.commit()
-                        st.success(f"¡Datos de {nom_new} modificados con éxito!")
-                        st.rerun()
-                        
-                with col_ind2:
-                    st.markdown("### 🗑️ Borrar Alumno Individual")
-                    mat_del = st.selectbox("Selecciona matrícula a borrar:", df_admin["Matrícula"].tolist(), key="sel_del_ind")
-                    
-                    if st.button("❌ Confirmar Eliminación Individual"):
-                        with conn.session as session:
-                            session.execute(text("DELETE FROM alumnos WHERE matricula = :m"), {"m": mat_del})
-                            session.execute(text("DELETE FROM calificaciones WHERE matricula = :m"), {"m": mat_del})
-                            session.execute(text("DELETE FROM reportes WHERE matricula = :m"), {"m": mat_del})
-                            session.execute(text("DELETE FROM ayuda WHERE matricula = :m"), {"m": mat_del})
-                            session.execute(text("DELETE FROM usuarios WHERE usuario = :m"), {"m": mat_del})
-                            session.commit()
-                        st.success("Alumno y registros asociados eliminados correctamente.")
-                        st.rerun()
-            else: 
-                st.info("No hay alumnos registrados actualmente.")
-
-        with pestanas[2]: modulo_carga_datos(key_prefix="sub_c")
-        with pestanas[3]: modulo_tutorias()
-        with pestanas[4]: modulo_gestion_usuarios()
-    else:
-        with pestanas[0]: modulo_carga_datos(key_prefix="coor_c")
-        with pestanas[1]: modulo_tutorias()
-        with pestanas[2]:
-            al = obtener_lista_alumnos()
-            if al:
-                a_sel = st.selectbox("Buscar Alumno:", [f"{a[0]} - {a[1]}" for a in al])
-                mostrar_expediente_completo(a_sel.split(" - ")[0])
-
-elif st.session_state.rol == "Alumno/Padre":
-    mat = st.session_state.usuario
-    datos = mostrar_expediente_completo(mat)
-    if datos:
-        sem_b = st.number_input("Ver semestre:", min_value=1, max_value=6, value=int(datos[2]))
-        mostrar_boleta(datos[0], datos[1], datos[3], sem_b)
-
-st.markdown("---")
-st.caption(CREDITOS)
+        <button onclick="descargarPDFHorizontal()" style="background-color: #198754; color: white; border: none; padding: 12px 24px; font-size: 14px; font-
